@@ -51,6 +51,9 @@ class MainActivity : AppCompatActivity() {
     binding.membersButton.setOnClickListener {
       startActivity(Intent(this, MembersActivity::class.java))
     }
+    binding.managePaymentsButton.setOnClickListener {
+      startActivity(Intent(this, PaymentsActivity::class.java))
+    }
     binding.logoutButton.setOnClickListener { viewModel.signOut() }
 
     lifecycleScope.launch {
@@ -67,6 +70,7 @@ class MainActivity : AppCompatActivity() {
     loginButton.isEnabled = !state.isLoading
     refreshButton.isEnabled = !state.isLoading
     membersButton.isEnabled = !state.isLoading
+    managePaymentsButton.isEnabled = !state.isLoading
     logoutButton.isEnabled = !state.isLoading
 
     if (state.isAuthenticated) {
@@ -96,6 +100,13 @@ class MainActivity : AppCompatActivity() {
     state.message?.let { message ->
       Snackbar.make(root, message, Snackbar.LENGTH_LONG).show()
       viewModel.messageShown()
+    }
+  }
+
+  override fun onResume() {
+    super.onResume()
+    if (::binding.isInitialized && viewModel.uiState.value.isAuthenticated) {
+      viewModel.refresh()
     }
   }
 

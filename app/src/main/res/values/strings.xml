@@ -13,6 +13,46 @@
     <string name="empty_payments">Aún no hay pagos registrados.</string>
     <string name="refresh">Actualizar</string>
     <string name="manage_members">Administrar miembros</string>
+    <string name="manage_payments">Gestionar pagos</string>
+    <string name="add_payment">Agregar pago</string>
+    <string name="new_payment_title">Nuevo pago</string>
+    <string name="edit_payment_title">Editar pago</string>
+    <string name="payment_form_subtitle">Completa el flujo en orden. Las fechas sugeridas se pueden modificar.</string>
+    <string name="payment_step_member">1. Seleccionar miembro</string>
+    <string name="payment_step_member_help">Elige quién realiza el pago.</string>
+    <string name="payment_step_details">2. Monto y tipo</string>
+    <string name="payment_step_details_help">Indica cuánto pagó, por qué concepto y cómo lo pagó.</string>
+    <string name="payment_step_validity">3. Vigencia</string>
+    <string name="payment_step_validity_help">Por defecto inicia hoy y termina un mes después. Puedes cambiar ambas fechas.</string>
+    <string name="payment_step_optional">4. Información adicional</string>
+    <string name="payment_step_optional_help">Estos datos son opcionales y ayudan a identificar el pago.</string>
+    <string name="member_required">Miembro *</string>
+    <string name="payment_amount">Valor *</string>
+    <string name="payment_date">Fecha de pago *</string>
+    <string name="payment_method">Método de pago</string>
+    <string name="payment_type">Tipo de pago</string>
+    <string name="valid_from">Válido desde *</string>
+    <string name="valid_until">Válido hasta *</string>
+    <string name="payment_reference">Referencia o comprobante</string>
+    <string name="save_payment">Guardar pago</string>
+    <string name="payment_saved">Pago guardado correctamente.</string>
+    <string name="empty_payments_manage">Aún no hay pagos. Registra el primero.</string>
+    <string name="managed_payment_row">%1$s · %2$s\nVigencia: %3$s – %4$s\n%5$s · Pagado: %6$s</string>
+    <string name="edit">Editar</string>
+    <string name="delete">Eliminar</string>
+    <string name="delete_payment_title">Eliminar pago</string>
+    <string name="delete_payment_message">¿Deseas eliminar el pago de %1$s? Esta acción no se puede deshacer.</string>
+    <string name="method_cash">Efectivo</string>
+    <string name="method_card">Tarjeta</string>
+    <string name="method_transfer">Transferencia</string>
+    <string name="method_online">Pago en línea</string>
+    <string name="method_other">Otro</string>
+    <string name="type_monthly_fee">Mensualidad</string>
+    <string name="type_enrollment">Matrícula o inscripción</string>
+    <string name="type_class_package">Paquete de clases</string>
+    <string name="type_personal_training">Entrenamiento personal</string>
+    <string name="type_other">Otro concepto</string>
+    <string name="no_active_members">No hay miembros registrados. Registra uno antes de crear un pago.</string>
     <string name="members_title">Miembros</string>
     <string name="new_member">Registrar nuevo miembro</string>
     <string name="register_member_title">Nuevo miembro</string>
@@ -36,5 +76,9 @@
     <plurals name="member_count">
         <item quantity="one">%d miembro registrado</item>
         <item quantity="other">%d miembros registrados</item>
+    </plurals>
+    <plurals name="managed_payment_count">
+        <item quantity="one">%d pago registrado</item>
+        <item quantity="other">%d pagos registrados</item>
     </plurals>
 </resources>

@@ -97,7 +97,10 @@ create table if not exists public.payments (
   subscription_id uuid,
   amount numeric(12,2) not null check (amount > 0),
   paid_on date not null default current_date,
+  payment_type text not null default 'monthly_fee',
   payment_method public.payment_method not null default 'cash',
+  valid_from date not null default current_date,
+  valid_until date not null default ((current_date + interval '1 month')::date),
   reference text,
   notes text,
   created_by uuid not null default auth.uid() references public.profiles(id),
@@ -105,7 +108,11 @@ create table if not exists public.payments (
   constraint payments_member_fk foreign key (member_id, organization_id)
     references public.members(id, organization_id),
   constraint payments_subscription_fk foreign key (subscription_id, organization_id)
-    references public.subscriptions(id, organization_id)
+    references public.subscriptions(id, organization_id),
+  constraint payments_type_check check (
+    payment_type in ('monthly_fee', 'enrollment', 'class_package', 'personal_training', 'other')
+  ),
+  constraint payments_validity_check check (valid_until >= valid_from)
 );
 
 create index if not exists members_organization_idx on public.members(organization_id);
@@ -322,7 +329,10 @@ select
   mp.name as plan_name,
   p.amount,
   p.paid_on,
+  p.payment_type,
   p.payment_method,
+  p.valid_from,
+  p.valid_until,
   p.reference,
   p.notes,
   p.created_at

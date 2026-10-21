@@ -14,6 +14,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.PaymentAcademy">
         <activity
+            android:name=".PaymentFormActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".PaymentsActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
             android:name=".RegisterMemberActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
