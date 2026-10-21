@@ -1,3 +1,40 @@
 <resources>
-    <string name="app_name">PaymentAcademy</string>
+    <string name="app_name">Payment Academy</string>
+    <string name="login_title">Control de pagos</string>
+    <string name="login_subtitle">Administra tu academia o gimnasio desde un solo lugar.</string>
+    <string name="email">Correo electrónico</string>
+    <string name="password">Contraseña</string>
+    <string name="sign_in">Ingresar</string>
+    <string name="sign_out">Salir</string>
+    <string name="dashboard_title">Pagos</string>
+    <string name="total_collected">Total de los pagos mostrados</string>
+    <string name="payment_count">Movimientos recientes (%1$d)</string>
+    <string name="payment_row">%1$s\n%2$s · %3$s\n%4$s</string>
+    <string name="empty_payments">Aún no hay pagos registrados.</string>
+    <string name="refresh">Actualizar</string>
+    <string name="manage_members">Administrar miembros</string>
+    <string name="members_title">Miembros</string>
+    <string name="new_member">Registrar nuevo miembro</string>
+    <string name="register_member_title">Nuevo miembro</string>
+    <string name="register_member_subtitle">Agrega un atleta o cliente a tu organización.</string>
+    <string name="back">Atrás</string>
+    <string name="cancel">Cancelar</string>
+    <string name="full_name">Nombre completo *</string>
+    <string name="document_number">Documento de identidad</string>
+    <string name="email_optional">Correo electrónico</string>
+    <string name="phone">Teléfono</string>
+    <string name="notes">Notas</string>
+    <string name="member_defaults_hint">Se registrará como miembro activo con la fecha de ingreso de hoy.</string>
+    <string name="save_member">Guardar miembro</string>
+    <string name="member_saved">Miembro registrado correctamente.</string>
+    <string name="empty_members">Aún no hay miembros. Registra el primero.</string>
+    <string name="member_row">%1$s\n%2$s\nIngreso: %3$s · %4$s</string>
+    <string name="no_contact">Sin datos de contacto</string>
+    <string name="status_active">Activo</string>
+    <string name="status_inactive">Inactivo</string>
+    <string name="status_frozen">Congelado</string>
+    <plurals name="member_count">
+        <item quantity="one">%d miembro registrado</item>
+        <item quantity="other">%d miembros registrados</item>
+    </plurals>
 </resources>
