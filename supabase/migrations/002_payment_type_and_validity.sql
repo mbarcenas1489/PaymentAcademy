@@ -1,6 +1,8 @@
 -- Agrega concepto y período de vigencia a pagos existentes.
 -- Ejecutar en Supabase Dashboard > SQL Editor si ya se aplicó 001_initial_schema.sql.
 
+begin;
+
 alter table public.payments
   add column if not exists payment_type text,
   add column if not exists valid_from date,
@@ -44,7 +46,11 @@ begin
   end if;
 end $$;
 
-create or replace view public.payment_overview
+-- La vista anterior no tenía las nuevas columnas. Se elimina primero porque
+-- PostgreSQL no permite insertar columnas en medio con CREATE OR REPLACE VIEW.
+drop view if exists public.payment_overview;
+
+create view public.payment_overview
 with (security_invoker = true)
 as
 select
@@ -69,3 +75,10 @@ left join public.subscriptions s on s.id = p.subscription_id and s.organization_
 left join public.membership_plans mp on mp.id = s.plan_id and mp.organization_id = p.organization_id;
 
 grant select on public.payment_overview to authenticated;
+
+comment on view public.payment_overview is
+  'Vista segura usada por la aplicación Android para listar pagos recientes.';
+
+commit;
+
+notify pgrst, 'reload schema';

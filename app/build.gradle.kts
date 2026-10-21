@@ -57,6 +57,7 @@ dependencies {
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.ktx)
+  implementation(libs.androidx.recyclerview)
   implementation(libs.material)
   implementation(platform(libs.supabase.bom))
   implementation(libs.supabase.auth)
