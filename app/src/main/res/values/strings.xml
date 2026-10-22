@@ -47,7 +47,12 @@
     <string name="payment_review">Miembro: %1$s\nValor: %2$s\nTipo: %3$s\nVigencia: %4$s – %5$s</string>
     <string name="payment_saved">Pago guardado correctamente.</string>
     <string name="empty_payments_manage">Aún no hay pagos. Registra el primero.</string>
-    <string name="managed_payment_row">%1$s · %2$s\nVigencia: %3$s – %4$s\n%5$s · Pagado: %6$s</string>
+    <string name="payment_meta">%1$s · %2$s</string>
+    <string name="payment_paid_on">Pagado el %1$s</string>
+    <string name="payment_status_current">Vigente</string>
+    <string name="payment_status_upcoming">Próximo</string>
+    <string name="payment_status_expired">Vencido</string>
+    <string name="payment_actions">Opciones del pago</string>
     <string name="edit">Editar</string>
     <string name="delete">Eliminar</string>
     <string name="delete_payment_title">Eliminar pago</string>

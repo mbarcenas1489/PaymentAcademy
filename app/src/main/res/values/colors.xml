@@ -8,4 +8,10 @@
     <color name="brand_primary">#8B3D1F</color>
     <color name="on_brand_primary">#FFFFFFFF</color>
     <color name="danger">#B3261E</color>
+    <color name="status_current_container">#DDF3E4</color>
+    <color name="status_current_text">#176B3A</color>
+    <color name="status_upcoming_container">#FFF0CC</color>
+    <color name="status_upcoming_text">#735800</color>
+    <color name="status_expired_container">#FCE0DE</color>
+    <color name="status_expired_text">#A1251C</color>
 </resources>

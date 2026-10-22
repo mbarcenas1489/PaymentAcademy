@@ -13,22 +13,22 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.data.remote.SupabaseProvider
 import com.example.paymentacademy.data.repository.SupabasePaymentRepository
 import com.example.paymentacademy.databinding.ActivityPaymentsBinding
-import com.example.paymentacademy.databinding.ItemPaymentBinding
+import com.example.paymentacademy.ui.PaymentAdapter
 import com.example.paymentacademy.ui.PaymentsUiState
 import com.example.paymentacademy.ui.PaymentsViewModel
 import com.example.paymentacademy.ui.PaymentsViewModelFactory
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.launch
-import java.text.NumberFormat
-import java.util.Locale
 
 class PaymentsActivity : AppCompatActivity() {
   private lateinit var binding: ActivityPaymentsBinding
+  private val paymentsAdapter = PaymentAdapter(::openPaymentForm, ::confirmDelete)
   private val viewModel: PaymentsViewModel by viewModels {
     PaymentsViewModelFactory(SupabasePaymentRepository(SupabaseProvider.client))
   }
@@ -55,6 +55,8 @@ class PaymentsActivity : AppCompatActivity() {
     binding.backButton.setOnClickListener { onBackPressedDispatcher.onBackPressed() }
     binding.addPaymentButton.setOnClickListener { openPaymentForm() }
     binding.refreshPaymentsButton.setOnClickListener { viewModel.refresh() }
+    binding.paymentsList.layoutManager = LinearLayoutManager(this)
+    binding.paymentsList.adapter = paymentsAdapter
 
     lifecycleScope.launch {
       repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -72,37 +74,16 @@ class PaymentsActivity : AppCompatActivity() {
       state.payments.size,
       state.payments.size,
     )
-    paymentsContainer.removeAllViews()
+    paymentsAdapter.submitList(state.payments)
     if (!state.isLoading && state.payments.isEmpty()) {
       emptyPayments.visibility = View.VISIBLE
     } else {
       emptyPayments.visibility = View.GONE
-      state.payments.forEach { payment ->
-        paymentsContainer.addView(paymentItem(payment))
-      }
     }
     state.message?.let { message ->
       Snackbar.make(root, message, Snackbar.LENGTH_LONG).show()
       viewModel.messageShown()
     }
-  }
-
-  private fun paymentItem(payment: PaymentSummary): View {
-    val item = ItemPaymentBinding.inflate(layoutInflater, binding.paymentsContainer, false)
-    val currency = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CO"))
-    item.memberName.text = payment.memberName
-    item.paymentDetails.text = getString(
-      R.string.managed_payment_row,
-      currency.format(payment.amount),
-      paymentTypeLabel(payment.paymentType),
-      payment.validFrom ?: payment.paidOn,
-      payment.validUntil ?: payment.paidOn,
-      paymentMethodLabel(payment.paymentMethod),
-      payment.paidOn,
-    )
-    item.editPaymentButton.setOnClickListener { openPaymentForm(payment) }
-    item.deletePaymentButton.setOnClickListener { confirmDelete(payment) }
-    return item.root
   }
 
   private fun openPaymentForm(payment: PaymentSummary? = null) {
@@ -131,19 +112,4 @@ class PaymentsActivity : AppCompatActivity() {
       .show()
   }
 
-  private fun paymentMethodLabel(method: String): String = when (method) {
-    "cash" -> getString(R.string.method_cash)
-    "card" -> getString(R.string.method_card)
-    "transfer" -> getString(R.string.method_transfer)
-    "online" -> getString(R.string.method_online)
-    else -> getString(R.string.method_other)
-  }
-
-  private fun paymentTypeLabel(type: String): String = when (type) {
-    "monthly_fee" -> getString(R.string.type_monthly_fee)
-    "enrollment" -> getString(R.string.type_enrollment)
-    "class_package" -> getString(R.string.type_class_package)
-    "personal_training" -> getString(R.string.type_personal_training)
-    else -> getString(R.string.type_other)
-  }
 }
