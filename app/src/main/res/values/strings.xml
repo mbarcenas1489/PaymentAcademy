@@ -7,13 +7,23 @@
     <string name="sign_in">Ingresar</string>
     <string name="sign_out">Salir</string>
     <string name="dashboard_title">Pagos</string>
-    <string name="total_collected">Total de los pagos mostrados</string>
-    <string name="payment_count">Movimientos recientes (%1$d)</string>
-    <string name="payment_row">%1$s\n%2$s · %3$s\n%4$s</string>
+    <string name="tab_summary">Resumen</string>
+    <string name="tab_movements">Movimientos</string>
+    <string name="monthly_total">Total de %1$s</string>
+    <string name="members_and_payments">Miembros y último pago</string>
+    <string name="latest_payment">Último pago</string>
+    <string name="no_member_payments">Sin pagos registrados</string>
+    <string name="latest_payment_main">%1$s · %2$s</string>
+    <string name="latest_payment_period">Pagado: %1$s · Vigencia hasta: %2$s</string>
+    <string name="movement_filter">Filtrar movimientos</string>
+    <string name="date_from">Desde</string>
+    <string name="date_to">Hasta</string>
+    <string name="apply_filter">Aplicar</string>
+    <string name="date_range_error">Selecciona un rango de fechas válido.</string>
     <string name="empty_payments">Aún no hay pagos registrados.</string>
     <string name="refresh">Actualizar</string>
-    <string name="manage_members">Administrar miembros</string>
     <string name="manage_payments">Gestionar pagos</string>
+    <string name="member_payments">Pagos del miembro</string>
     <string name="add_payment">Agregar pago</string>
     <string name="new_payment_title">Nuevo pago</string>
     <string name="edit_payment_title">Editar pago</string>
@@ -95,5 +105,9 @@
     <plurals name="managed_payment_count">
         <item quantity="one">%d pago registrado</item>
         <item quantity="other">%d pagos registrados</item>
+    </plurals>
+    <plurals name="movement_count">
+        <item quantity="one">%d movimiento</item>
+        <item quantity="other">%d movimientos</item>
     </plurals>
 </resources>

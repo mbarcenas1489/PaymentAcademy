@@ -1,6 +1,7 @@
 package com.example.paymentacademy.data.repository
 
 import com.example.paymentacademy.data.model.PaymentSummary
+import com.example.paymentacademy.data.model.MemberPaymentSummary
 import com.example.paymentacademy.data.model.PaymentMutationResult
 import com.example.paymentacademy.data.model.NewPaymentRecord
 import com.example.paymentacademy.data.model.OrganizationMembership
@@ -11,6 +12,7 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Order
 
 class SupabasePaymentRepository(private val client: SupabaseClient) : PaymentRepository {
   private var organizationId: String? = null
@@ -28,12 +30,28 @@ class SupabasePaymentRepository(private val client: SupabaseClient) : PaymentRep
 
   override suspend fun signOut() = client.auth.signOut()
 
-  override suspend fun getRecentPayments(): List<PaymentSummary> =
-    client.from("payment_overview")
-      .select()
-      .decodeList<PaymentSummary>()
-      .sortedWith(compareByDescending<PaymentSummary> { it.paidOn }.thenByDescending { it.id })
-      .take(100)
+  override suspend fun getPayments(
+    fromDate: String?,
+    toDate: String?,
+    memberId: String?,
+    resultLimit: Long?,
+  ): List<PaymentSummary> = client.from("payment_overview")
+    .select {
+      filter {
+        fromDate?.let { gte("paid_on", it) }
+        toDate?.let { lte("paid_on", it) }
+        memberId?.let { eq("member_id", it) }
+      }
+      order("paid_on", Order.DESCENDING)
+      order("created_at", Order.DESCENDING)
+      resultLimit?.let { limit(it) }
+    }
+    .decodeList()
+
+  override suspend fun getMemberPaymentSummaries(): List<MemberPaymentSummary> =
+    client.from("member_payment_summary")
+      .select { order("full_name", Order.ASCENDING) }
+      .decodeList()
 
   override suspend fun createPayment(payment: PaymentDraft) {
     client.from("payments").insert(

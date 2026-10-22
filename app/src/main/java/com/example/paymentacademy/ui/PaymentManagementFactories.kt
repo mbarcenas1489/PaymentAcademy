@@ -7,10 +7,11 @@ import com.example.paymentacademy.domain.PaymentRepository
 
 class PaymentsViewModelFactory(
   private val repository: PaymentRepository,
+  private val memberId: String? = null,
 ) : ViewModelProvider.Factory {
   @Suppress("UNCHECKED_CAST")
   override fun <T : ViewModel> create(modelClass: Class<T>): T =
-    PaymentsViewModel(repository) as T
+    PaymentsViewModel(repository, memberId) as T
 }
 
 class PaymentFormViewModelFactory(

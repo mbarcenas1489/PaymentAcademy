@@ -28,9 +28,11 @@ import kotlinx.coroutines.launch
 
 class PaymentsActivity : AppCompatActivity() {
   private lateinit var binding: ActivityPaymentsBinding
+  private val memberId: String? by lazy { intent.getStringExtra(EXTRA_MEMBER_ID) }
+  private val memberName: String? by lazy { intent.getStringExtra(EXTRA_MEMBER_NAME) }
   private val paymentsAdapter = PaymentAdapter(::openPaymentForm, ::confirmDelete)
   private val viewModel: PaymentsViewModel by viewModels {
-    PaymentsViewModelFactory(SupabasePaymentRepository(SupabaseProvider.client))
+    PaymentsViewModelFactory(SupabasePaymentRepository(SupabaseProvider.client), memberId)
   }
   private val paymentForm = registerForActivityResult(
     ActivityResultContracts.StartActivityForResult(),
@@ -57,6 +59,12 @@ class PaymentsActivity : AppCompatActivity() {
     binding.refreshPaymentsButton.setOnClickListener { viewModel.refresh() }
     binding.paymentsList.layoutManager = LinearLayoutManager(this)
     binding.paymentsList.adapter = paymentsAdapter
+    if (memberId != null) {
+      binding.paymentsTitle.text = memberName ?: getString(R.string.member_payments)
+      binding.memberDetails.text = intent.getStringExtra(EXTRA_MEMBER_DETAILS).orEmpty()
+      binding.memberDetails.visibility =
+        if (binding.memberDetails.text.isBlank()) View.GONE else View.VISIBLE
+    }
 
     lifecycleScope.launch {
       repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -88,9 +96,9 @@ class PaymentsActivity : AppCompatActivity() {
 
   private fun openPaymentForm(payment: PaymentSummary? = null) {
     val intent = Intent(this, PaymentFormActivity::class.java)
+    intent.putExtra(PaymentFormActivity.EXTRA_MEMBER_ID, payment?.memberId ?: memberId)
     payment?.let {
       intent.putExtra(PaymentFormActivity.EXTRA_PAYMENT_ID, it.id)
-      intent.putExtra(PaymentFormActivity.EXTRA_MEMBER_ID, it.memberId)
       intent.putExtra(PaymentFormActivity.EXTRA_AMOUNT, it.amount)
       intent.putExtra(PaymentFormActivity.EXTRA_PAID_ON, it.paidOn)
       intent.putExtra(PaymentFormActivity.EXTRA_PAYMENT_TYPE, it.paymentType)
@@ -112,4 +120,9 @@ class PaymentsActivity : AppCompatActivity() {
       .show()
   }
 
+  companion object {
+    const val EXTRA_MEMBER_ID = "member_id"
+    const val EXTRA_MEMBER_NAME = "member_name"
+    const val EXTRA_MEMBER_DETAILS = "member_details"
+  }
 }

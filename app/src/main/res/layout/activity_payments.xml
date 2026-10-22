@@ -27,6 +27,7 @@
                 android:text="@string/back" />
 
             <TextView
+                android:id="@+id/payments_title"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -38,10 +39,19 @@
         </LinearLayout>
 
         <TextView
+            android:id="@+id/member_details"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
+        <TextView
             android:id="@+id/payment_count"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
+            android:layout_marginTop="14dp"
             android:textColor="@color/text_secondary"
             android:textSize="16sp" />
 

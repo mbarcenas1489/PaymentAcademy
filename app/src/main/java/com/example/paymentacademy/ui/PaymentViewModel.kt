@@ -2,12 +2,17 @@ package com.example.paymentacademy.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.paymentacademy.data.model.MemberPaymentSummary
+import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.domain.PaymentRepository
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() {
   private val _uiState = MutableStateFlow(PaymentUiState(isLoading = true))
@@ -16,12 +21,18 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
   init {
     viewModelScope.launch {
       runCatching {
-        if (repository.restoreSession()) repository.getRecentPayments() else null
-      }.onSuccess { payments ->
-        _uiState.value = if (payments == null) {
+        if (repository.restoreSession()) loadDashboard() else null
+      }.onSuccess { dashboard ->
+        _uiState.value = if (dashboard == null) {
           PaymentUiState()
         } else {
-          PaymentUiState(isAuthenticated = true, payments = payments)
+          _uiState.value.copy(
+            isAuthenticated = true,
+            isLoading = false,
+            members = dashboard.members,
+            movements = dashboard.movements,
+            monthlyTotal = dashboard.monthlyTotal,
+          )
         }
       }.onFailure { error ->
         _uiState.value = PaymentUiState(
@@ -40,9 +51,17 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
       runCatching {
         _uiState.update { it.copy(isLoading = true) }
         repository.signIn(email.trim(), password)
-        repository.getRecentPayments()
-      }.onSuccess { payments ->
-        _uiState.value = PaymentUiState(isAuthenticated = true, payments = payments)
+        loadDashboard()
+      }.onSuccess { dashboard ->
+        _uiState.update {
+          it.copy(
+            isAuthenticated = true,
+            isLoading = false,
+            members = dashboard.members,
+            movements = dashboard.movements,
+            monthlyTotal = dashboard.monthlyTotal,
+          )
+        }
       }.onFailure { error ->
         _uiState.update {
           it.copy(isLoading = false, message = error.userMessage("No fue posible iniciar sesión"))
@@ -52,15 +71,56 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
   }
 
   fun refresh() {
+    if (!_uiState.value.isAuthenticated) return
     viewModelScope.launch {
       runCatching {
         _uiState.update { it.copy(isLoading = true) }
-        repository.getRecentPayments()
-      }.onSuccess { payments ->
-        _uiState.update { it.copy(isLoading = false, payments = payments) }
+        loadDashboard()
+      }.onSuccess { dashboard ->
+        _uiState.update {
+          it.copy(
+            isLoading = false,
+            members = dashboard.members,
+            movements = dashboard.movements,
+            monthlyTotal = dashboard.monthlyTotal,
+          )
+        }
       }.onFailure { error ->
         _uiState.update {
-          it.copy(isLoading = false, message = error.userMessage("No fue posible cargar los pagos"))
+          it.copy(isLoading = false, message = error.userMessage("No fue posible cargar el resumen"))
+        }
+      }
+    }
+  }
+
+  fun setMovementRange(fromDate: LocalDate, toDate: LocalDate) {
+    if (toDate.isBefore(fromDate)) {
+      _uiState.update { it.copy(message = "La fecha final no puede ser anterior a la inicial.") }
+      return
+    }
+    _uiState.update { it.copy(fromDate = fromDate, toDate = toDate) }
+    refresh()
+  }
+
+  fun deletePayment(paymentId: String) {
+    viewModelScope.launch {
+      runCatching {
+        _uiState.update { it.copy(isLoading = true) }
+        repository.deletePayment(paymentId)
+        loadDashboard()
+      }.onSuccess { dashboard ->
+        _uiState.update {
+          it.copy(
+            isLoading = false,
+            members = dashboard.members,
+            movements = dashboard.movements,
+            monthlyTotal = dashboard.monthlyTotal,
+            message = "Pago eliminado correctamente.",
+          )
+        }
+      }.onFailure { error ->
+        _uiState.update {
+          it.copy(isLoading = false, message = error.userMessage("No fue posible eliminar el pago"))
         }
       }
     }
@@ -77,6 +137,37 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
     _uiState.update { it.copy(message = null) }
   }
 
+  private suspend fun loadDashboard(): DashboardData = coroutineScope {
+    val range = _uiState.value
+    val today = LocalDate.now()
+    val monthStart = today.withDayOfMonth(1)
+    val monthEnd = today.withDayOfMonth(today.lengthOfMonth())
+    val members = async { repository.getMemberPaymentSummaries() }
+    val monthlyPayments = async {
+      repository.getPayments(
+        fromDate = monthStart.toString(),
+        toDate = monthEnd.toString(),
+      )
+    }
+    val movements = async {
+      repository.getPayments(
+        fromDate = range.fromDate.toString(),
+        toDate = range.toDate.toString(),
+      )
+    }
+    DashboardData(
+      members = members.await(),
+      movements = movements.await(),
+      monthlyTotal = monthlyPayments.await().sumOf { it.amount },
+    )
+  }
+
   private fun Throwable.userMessage(fallback: String): String =
     message?.takeIf { it.isNotBlank() } ?: fallback
+
+  private data class DashboardData(
+    val members: List<MemberPaymentSummary>,
+    val movements: List<PaymentSummary>,
+    val monthlyTotal: Double,
+  )
 }
