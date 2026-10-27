@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
 class RegisterMemberActivity : AppCompatActivity() {
   private lateinit var binding: ActivityRegisterMemberBinding
   private val viewModel: RegisterMemberViewModel by viewModels {
-    RegisterMemberViewModelFactory(SupabaseMemberRepository(SupabaseProvider.client))
+    RegisterMemberViewModelFactory(SupabaseMemberRepository(SupabaseProvider.client, applicationContext))
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {

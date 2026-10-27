@@ -53,6 +53,15 @@ class PaymentAdapter(
         R.string.payment_paid_on,
         parseDate(payment.paidOn)?.format(fullDate) ?: payment.paidOn,
       )
+      
+      if (payment.isSyncPending) {
+          iconSyncStatus.setImageResource(R.drawable.ic_cloud_upload)
+          iconSyncStatus.imageTintList = android.content.res.ColorStateList.valueOf(context.getColor(R.color.status_expired_text))
+      } else {
+          iconSyncStatus.setImageResource(R.drawable.ic_cloud_done)
+          iconSyncStatus.imageTintList = android.content.res.ColorStateList.valueOf(context.getColor(R.color.status_current_text))
+      }
+      
       bindStatus(paymentStatus(from, until))
 
       paymentCard.setOnClickListener { onEdit(payment) }

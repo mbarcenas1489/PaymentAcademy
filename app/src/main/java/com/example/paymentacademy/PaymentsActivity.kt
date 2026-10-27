@@ -32,7 +32,7 @@ class PaymentsActivity : AppCompatActivity() {
   private val memberName: String? by lazy { intent.getStringExtra(EXTRA_MEMBER_NAME) }
   private val paymentsAdapter = PaymentAdapter(::openPaymentForm, ::confirmDelete)
   private val viewModel: PaymentsViewModel by viewModels {
-    PaymentsViewModelFactory(SupabasePaymentRepository(SupabaseProvider.client), memberId)
+    PaymentsViewModelFactory(SupabasePaymentRepository(SupabaseProvider.client, applicationContext), memberId)
   }
   private val paymentForm = registerForActivityResult(
     ActivityResultContracts.StartActivityForResult(),

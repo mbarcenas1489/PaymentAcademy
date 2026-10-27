@@ -28,7 +28,7 @@ import kotlinx.coroutines.launch
 class MembersActivity : AppCompatActivity() {
   private lateinit var binding: ActivityMembersBinding
   private val viewModel: MembersViewModel by viewModels {
-    MembersViewModelFactory(SupabaseMemberRepository(SupabaseProvider.client))
+    MembersViewModelFactory(SupabaseMemberRepository(SupabaseProvider.client, applicationContext))
   }
   private val registerMember = registerForActivityResult(
     ActivityResultContracts.StartActivityForResult(),
@@ -84,6 +84,14 @@ class MembersActivity : AppCompatActivity() {
         itemBinding.textContact.text = if (contact.isBlank()) getString(R.string.no_contact) else contact
         
         itemBinding.textJoinedOn.text = getString(R.string.joined_on, member.joinedOn)
+        
+        if (member.isSyncPending) {
+            itemBinding.iconSyncStatus.setImageResource(R.drawable.ic_cloud_upload)
+            itemBinding.iconSyncStatus.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.status_expired_text))
+        } else {
+            itemBinding.iconSyncStatus.setImageResource(R.drawable.ic_cloud_done)
+            itemBinding.iconSyncStatus.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.status_current_text))
+        }
         
         itemBinding.textStatus.text = statusLabel(member.status)
         when (member.status) {

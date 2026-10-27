@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/payment_card"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -92,6 +93,19 @@
                     android:textSize="11sp"
                     android:textStyle="bold" />
             </com.google.android.material.card.MaterialCardView>
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1"/>
+
+            <ImageView
+                android:id="@+id/icon_sync_status"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                tools:src="@drawable/ic_cloud_done"
+                android:layout_marginEnd="10dp"
+                android:contentDescription="Sync Status" />
         </LinearLayout>
 
         <View

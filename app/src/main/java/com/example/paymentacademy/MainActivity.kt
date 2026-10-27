@@ -38,7 +38,7 @@ import java.util.Locale
 class MainActivity : AppCompatActivity() {
   private lateinit var binding: ActivityMainBinding
   private val viewModel: PaymentViewModel by viewModels {
-    PaymentViewModelFactory(SupabasePaymentRepository(SupabaseProvider.client))
+    PaymentViewModelFactory(SupabasePaymentRepository(SupabaseProvider.client, applicationContext))
   }
   private val memberAdapter = MemberPaymentSummaryAdapter(::openMemberPayments)
   private val movementAdapter = PaymentAdapter(::openPaymentForm, ::confirmDelete)
@@ -224,6 +224,7 @@ class MainActivity : AppCompatActivity() {
     super.onResume()
     if (::binding.isInitialized && viewModel.uiState.value.isAuthenticated) {
       viewModel.refresh()
+      com.example.paymentacademy.worker.SyncWorker.schedule(this)
     }
   }
 }
