@@ -38,6 +38,24 @@ class PaymentAdapter(
   ) : RecyclerView.ViewHolder(binding.root) {
     fun bind(payment: PaymentSummary) = with(binding) {
       val context = root.context
+      
+      // Handle Month Header
+      val currentMonth = parseDate(payment.paidOn)?.format(DateTimeFormatter.ofPattern("MMMM yyyy", locale))?.replaceFirstChar { it.titlecase() } ?: ""
+      val showHeader = if (bindingAdapterPosition == 0) {
+          true
+      } else {
+          val previousPayment = getItem(bindingAdapterPosition - 1)
+          val previousMonth = parseDate(previousPayment.paidOn)?.format(DateTimeFormatter.ofPattern("MMMM yyyy", locale))?.replaceFirstChar { it.titlecase() } ?: ""
+          currentMonth != previousMonth
+      }
+      
+      if (showHeader && currentMonth.isNotEmpty()) {
+          monthHeader.visibility = android.view.View.VISIBLE
+          monthHeader.text = currentMonth
+      } else {
+          monthHeader.visibility = android.view.View.GONE
+      }
+      
       val from = parseDate(payment.validFrom ?: payment.paidOn)
       val until = parseDate(payment.validUntil ?: payment.paidOn)
 
@@ -53,6 +71,15 @@ class PaymentAdapter(
         R.string.payment_paid_on,
         parseDate(payment.paidOn)?.format(fullDate) ?: payment.paidOn,
       )
+      
+      if (payment.isSyncPending) {
+          iconSyncStatus.setImageResource(R.drawable.ic_cloud_upload)
+          iconSyncStatus.imageTintList = android.content.res.ColorStateList.valueOf(context.getColor(R.color.status_expired_text))
+      } else {
+          iconSyncStatus.setImageResource(R.drawable.ic_cloud_done)
+          iconSyncStatus.imageTintList = android.content.res.ColorStateList.valueOf(context.getColor(R.color.status_current_text))
+      }
+      
       bindStatus(paymentStatus(from, until))
 
       paymentCard.setOnClickListener { onEdit(payment) }

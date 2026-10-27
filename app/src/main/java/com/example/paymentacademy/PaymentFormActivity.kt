@@ -35,8 +35,8 @@ class PaymentFormActivity : AppCompatActivity() {
   private lateinit var binding: ActivityPaymentFormBinding
   private val viewModel: PaymentFormViewModel by viewModels {
     PaymentFormViewModelFactory(
-      SupabasePaymentRepository(SupabaseProvider.client),
-      SupabaseMemberRepository(SupabaseProvider.client),
+      SupabasePaymentRepository(SupabaseProvider.client, applicationContext),
+      SupabaseMemberRepository(SupabaseProvider.client, applicationContext),
     )
   }
   private val paymentId: String? by lazy { intent.getStringExtra(EXTRA_PAYMENT_ID) }
