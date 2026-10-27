@@ -92,6 +92,14 @@ class PaymentAdapter(
       paymentStatus.setText(label)
       paymentStatus.setTextColor(ContextCompat.getColor(root.context, textColor))
       statusContainer.setCardBackgroundColor(ContextCompat.getColor(root.context, containerColor))
+      val isCurrent = status == PaymentStatus.CURRENT
+      paymentCard.strokeColor = ContextCompat.getColor(
+        root.context,
+        if (isCurrent) R.color.status_current_border else R.color.card_stroke,
+      )
+      paymentCard.strokeWidth = root.resources.getDimensionPixelSize(
+        if (isCurrent) R.dimen.payment_card_current_stroke else R.dimen.payment_card_stroke,
+      )
     }
   }
 

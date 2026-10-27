@@ -1,3 +1,5 @@
 <resources>
     <dimen name="payment_item_margin">10dp</dimen>
+    <dimen name="payment_card_stroke">1dp</dimen>
+    <dimen name="payment_card_current_stroke">2dp</dimen>
 </resources>

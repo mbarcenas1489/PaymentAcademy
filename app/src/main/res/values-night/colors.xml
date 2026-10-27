@@ -9,6 +9,7 @@
     <color name="on_brand_primary">#52200B</color>
     <color name="status_current_container">#173C28</color>
     <color name="status_current_text">#84E0A3</color>
+    <color name="status_current_border">#70A982</color>
     <color name="status_upcoming_container">#493B16</color>
     <color name="status_upcoming_text">#FFD66B</color>
     <color name="status_expired_container">#4D2421</color>

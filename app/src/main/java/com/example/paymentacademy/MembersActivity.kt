@@ -76,24 +76,37 @@ class MembersActivity : AppCompatActivity() {
     if (!state.isLoading && state.members.isEmpty()) {
       membersContainer.addView(memberText(getString(R.string.empty_members)))
     } else {
-      state.members.forEach { membersContainer.addView(memberText(it.displayText())) }
+      state.members.forEach { member ->
+        val itemBinding = com.example.paymentacademy.databinding.ItemMemberBinding.inflate(layoutInflater, membersContainer, false)
+        itemBinding.textFullName.text = member.fullName
+        
+        val contact = listOfNotNull(member.phone, member.email).filter { it.isNotBlank() }.joinToString(" · ")
+        itemBinding.textContact.text = if (contact.isBlank()) getString(R.string.no_contact) else contact
+        
+        itemBinding.textJoinedOn.text = getString(R.string.joined_on, member.joinedOn)
+        
+        itemBinding.textStatus.text = statusLabel(member.status)
+        when (member.status) {
+          "active" -> {
+            itemBinding.textStatus.setTextColor(getColor(R.color.status_current_text))
+            itemBinding.textStatus.setBackgroundColor(getColor(R.color.status_current_container))
+          }
+          "frozen" -> {
+            itemBinding.textStatus.setTextColor(getColor(R.color.status_upcoming_text))
+            itemBinding.textStatus.setBackgroundColor(getColor(R.color.status_upcoming_container))
+          }
+          else -> {
+            itemBinding.textStatus.setTextColor(getColor(R.color.status_expired_text))
+            itemBinding.textStatus.setBackgroundColor(getColor(R.color.status_expired_container))
+          }
+        }
+        membersContainer.addView(itemBinding.root)
+      }
     }
     state.message?.let { message ->
       Snackbar.make(root, message, Snackbar.LENGTH_LONG).show()
       viewModel.messageShown()
     }
-  }
-
-  private fun Member.displayText(): String {
-    val contact = listOfNotNull(phone, email).filter { it.isNotBlank() }.joinToString(" · ")
-    val details = if (contact.isBlank()) getString(R.string.no_contact) else contact
-    return getString(
-      R.string.member_row,
-      fullName,
-      details,
-      joinedOn,
-      statusLabel(status),
-    )
   }
 
   private fun statusLabel(status: String): String = when (status) {
