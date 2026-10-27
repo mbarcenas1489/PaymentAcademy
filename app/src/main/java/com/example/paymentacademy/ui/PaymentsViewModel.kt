@@ -18,6 +18,7 @@ data class PaymentsUiState(
 
 class PaymentsViewModel(
   private val repository: PaymentRepository,
+  private val memberId: String? = null,
 ) : ViewModel() {
   private val _uiState = MutableStateFlow(PaymentsUiState())
   val uiState: StateFlow<PaymentsUiState> = _uiState.asStateFlow()
@@ -27,7 +28,7 @@ class PaymentsViewModel(
   fun refresh() {
     viewModelScope.launch {
       _uiState.update { it.copy(isLoading = true) }
-      runCatching { repository.getRecentPayments() }
+      runCatching { loadPayments() }
         .onSuccess { _uiState.value = PaymentsUiState(payments = it) }
         .onFailure { error ->
           _uiState.update {
@@ -42,7 +43,7 @@ class PaymentsViewModel(
       _uiState.update { it.copy(isLoading = true) }
       runCatching {
         repository.deletePayment(paymentId)
-        repository.getRecentPayments()
+        loadPayments()
       }.onSuccess { payments ->
         _uiState.value = PaymentsUiState(
           payments = payments,
@@ -58,5 +59,11 @@ class PaymentsViewModel(
 
   fun messageShown() {
     _uiState.update { it.copy(message = null) }
+  }
+
+  private suspend fun loadPayments() = if (memberId == null) {
+    repository.getRecentPayments()
+  } else {
+    repository.getPayments(memberId = memberId)
   }
 }

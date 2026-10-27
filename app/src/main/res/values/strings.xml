@@ -7,26 +7,36 @@
     <string name="sign_in">Ingresar</string>
     <string name="sign_out">Salir</string>
     <string name="dashboard_title">Pagos</string>
-    <string name="total_collected">Total de los pagos mostrados</string>
-    <string name="payment_count">Movimientos recientes (%1$d)</string>
-    <string name="payment_row">%1$s\n%2$s · %3$s\n%4$s</string>
+    <string name="tab_summary">Resumen</string>
+    <string name="tab_movements">Movimientos</string>
+    <string name="monthly_total">Total de %1$s</string>
+    <string name="members_and_payments">Miembros y último pago</string>
+    <string name="latest_payment">Último pago</string>
+    <string name="no_member_payments">Sin pagos registrados</string>
+    <string name="latest_payment_main">%1$s · %2$s</string>
+    <string name="latest_payment_period">Pagado: %1$s · Vigencia hasta: %2$s</string>
+    <string name="movement_filter">Filtrar movimientos</string>
+    <string name="date_from">Desde</string>
+    <string name="date_to">Hasta</string>
+    <string name="apply_filter">Aplicar</string>
+    <string name="date_range_error">Selecciona un rango de fechas válido.</string>
     <string name="empty_payments">Aún no hay pagos registrados.</string>
     <string name="refresh">Actualizar</string>
-    <string name="manage_members">Administrar miembros</string>
     <string name="manage_payments">Gestionar pagos</string>
+    <string name="member_payments">Pagos del miembro</string>
     <string name="add_payment">Agregar pago</string>
     <string name="new_payment_title">Nuevo pago</string>
     <string name="edit_payment_title">Editar pago</string>
-    <string name="payment_step_member">1. Seleccionar miembro</string>
+    <string name="payment_step_member">Seleccionar miembro</string>
     <string name="member_search_help">Busca por nombre, documento, teléfono o correo y selecciona un miembro.</string>
     <string name="search_member">Buscar miembro</string>
     <string name="no_members_found">No se encontraron miembros con esa búsqueda.</string>
     <string name="member_selected">Miembro seleccionado</string>
     <string name="selected_member">Seleccionado: %1$s</string>
-    <string name="payment_step_details">2. Monto y tipo</string>
-    <string name="payment_step_validity">3. Vigencia</string>
+    <string name="payment_step_details">Monto y tipo</string>
+    <string name="payment_step_validity">Vigencia</string>
     <string name="payment_step_validity_help">Por defecto inicia hoy y termina un mes después. Puedes cambiar ambas fechas.</string>
-    <string name="payment_step_optional">4. Información adicional</string>
+    <string name="payment_step_optional">Información adicional</string>
     <string name="payment_amount">Valor *</string>
     <string name="payment_date">Fecha de pago *</string>
     <string name="payment_method">Método de pago</string>
@@ -47,7 +57,12 @@
     <string name="payment_review">Miembro: %1$s\nValor: %2$s\nTipo: %3$s\nVigencia: %4$s – %5$s</string>
     <string name="payment_saved">Pago guardado correctamente.</string>
     <string name="empty_payments_manage">Aún no hay pagos. Registra el primero.</string>
-    <string name="managed_payment_row">%1$s · %2$s\nVigencia: %3$s – %4$s\n%5$s · Pagado: %6$s</string>
+    <string name="payment_meta">%1$s · %2$s</string>
+    <string name="payment_paid_on">Pagado el %1$s</string>
+    <string name="payment_status_current">Vigente</string>
+    <string name="payment_status_upcoming">Próximo</string>
+    <string name="payment_status_expired">Vencido</string>
+    <string name="payment_actions">Opciones del pago</string>
     <string name="edit">Editar</string>
     <string name="delete">Eliminar</string>
     <string name="delete_payment_title">Eliminar pago</string>
@@ -79,6 +94,7 @@
     <string name="member_saved">Miembro registrado correctamente.</string>
     <string name="empty_members">Aún no hay miembros. Registra el primero.</string>
     <string name="member_row">%1$s\n%2$s\nIngreso: %3$s · %4$s</string>
+    <string name="joined_on">Ingreso: %1$s</string>
     <string name="no_contact">Sin datos de contacto</string>
     <string name="status_active">Activo</string>
     <string name="status_inactive">Inactivo</string>
@@ -90,5 +106,9 @@
     <plurals name="managed_payment_count">
         <item quantity="one">%d pago registrado</item>
         <item quantity="other">%d pagos registrados</item>
+    </plurals>
+    <plurals name="movement_count">
+        <item quantity="one">%d movimiento</item>
+        <item quantity="other">%d movimientos</item>
     </plurals>
 </resources>

@@ -40,6 +40,7 @@ class PaymentFormActivity : AppCompatActivity() {
     )
   }
   private val paymentId: String? by lazy { intent.getStringExtra(EXTRA_PAYMENT_ID) }
+  private val lockedMemberId: String? by lazy { intent.getStringExtra(EXTRA_MEMBER_ID) }
   private var currentStep = 1
   private var allMembers: List<Member> = emptyList()
   private var selectedMember: Member? = null
@@ -74,12 +75,13 @@ class PaymentFormActivity : AppCompatActivity() {
         viewModel.uiState.collect(::render)
       }
     }
-    showStep(1)
+    binding.stepProgress.max = visibleStepCount()
+    showStep(firstStep())
   }
 
   private fun configureNavigation() {
     binding.previousButton.setOnClickListener {
-      if (currentStep > 1) showStep(currentStep - 1)
+      if (currentStep > firstStep()) showStep(currentStep - 1)
     }
     binding.nextButton.setOnClickListener {
       if (validateStep(currentStep)) showStep(currentStep + 1)
@@ -87,22 +89,23 @@ class PaymentFormActivity : AppCompatActivity() {
     binding.savePaymentButton.setOnClickListener { savePayment() }
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
       override fun handleOnBackPressed() {
-        if (currentStep > 1) showStep(currentStep - 1) else finish()
+        if (currentStep > firstStep()) showStep(currentStep - 1) else finish()
       }
     })
   }
 
   private fun showStep(step: Int) = with(binding) {
-    currentStep = step.coerceIn(1, TOTAL_STEPS)
+    currentStep = step.coerceIn(firstStep(), TOTAL_STEPS)
     stepMemberContainer.visibility = if (currentStep == 1) View.VISIBLE else View.GONE
     stepDetailsContainer.visibility = if (currentStep == 2) View.VISIBLE else View.GONE
     stepValidityContainer.visibility = if (currentStep == 3) View.VISIBLE else View.GONE
     stepOptionalContainer.visibility = if (currentStep == 4) View.VISIBLE else View.GONE
-    previousButton.visibility = if (currentStep == 1) View.INVISIBLE else View.VISIBLE
+    previousButton.visibility = if (currentStep == firstStep()) View.INVISIBLE else View.VISIBLE
     nextButton.visibility = if (currentStep == TOTAL_STEPS) View.GONE else View.VISIBLE
     savePaymentButton.visibility = if (currentStep == TOTAL_STEPS) View.VISIBLE else View.GONE
-    stepIndicator.text = getString(R.string.step_of, currentStep, TOTAL_STEPS)
-    stepProgress.setProgressCompat(currentStep, true)
+    val visibleStep = currentStep - firstStep() + 1
+    stepIndicator.text = getString(R.string.step_of, visibleStep, visibleStepCount())
+    stepProgress.setProgressCompat(visibleStep, true)
     if (currentStep == TOTAL_STEPS) updateReview()
   }
 
@@ -255,20 +258,22 @@ class PaymentFormActivity : AppCompatActivity() {
 
   private fun render(state: PaymentFormUiState) = with(binding) {
     progressIndicator.visibility = if (state.isLoading || state.isSaving) View.VISIBLE else View.GONE
-    nextButton.isEnabled = !state.isLoading && !state.isSaving && state.members.isNotEmpty()
-    savePaymentButton.isEnabled = nextButton.isEnabled
-    previousButton.isEnabled = !state.isSaving
-    cancelButton.isEnabled = !state.isSaving
-
     membersLoaded = !state.isLoading
     if (state.members != allMembers) {
       allMembers = state.members
-      val editingMemberId = intent.getStringExtra(EXTRA_MEMBER_ID)
-      if (selectedMember == null && editingMemberId != null) {
-        state.members.firstOrNull { it.id == editingMemberId }?.let(::selectMember)
+      if (selectedMember == null && lockedMemberId != null) {
+        state.members.firstOrNull { it.id == lockedMemberId }?.let(::selectMember)
       }
     }
     filterMembers(memberSearchInput.text?.toString().orEmpty())
+
+    // La selección bloqueada debe resolverse antes de calcular el estado de navegación.
+    val memberReady = state.members.isNotEmpty() &&
+      (lockedMemberId == null || selectedMember != null)
+    nextButton.isEnabled = !state.isLoading && !state.isSaving && memberReady
+    savePaymentButton.isEnabled = nextButton.isEnabled
+    previousButton.isEnabled = !state.isSaving
+    cancelButton.isEnabled = !state.isSaving
 
     amountLayout.error = state.amountError
     paidOnLayout.error = state.dateError
@@ -337,6 +342,10 @@ class PaymentFormActivity : AppCompatActivity() {
     "personal_training" -> getString(R.string.type_personal_training)
     else -> getString(R.string.type_other)
   }
+
+  private fun firstStep(): Int = if (lockedMemberId == null) 1 else 2
+
+  private fun visibleStepCount(): Int = TOTAL_STEPS - firstStep() + 1
 
   companion object {
     const val EXTRA_PAYMENT_ID = "payment_id"
