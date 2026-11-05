@@ -19,6 +19,7 @@ class PaymentAdapter(
   private val onEdit: (PaymentSummary) -> Unit,
   private val onShareReceipt: (PaymentSummary) -> Unit,
   private val onDelete: (PaymentSummary) -> Unit,
+  private val canManagePayments: () -> Boolean = { true },
 ) : ListAdapter<PaymentSummary, PaymentAdapter.PaymentViewHolder>(DiffCallback) {
   private val locale = Locale.forLanguageTag("es-CO")
   private val currency = NumberFormat.getCurrencyInstance(locale)
@@ -83,10 +84,14 @@ class PaymentAdapter(
       
       bindStatus(paymentStatus(from, until))
 
-      paymentCard.setOnClickListener { onEdit(payment) }
+      paymentCard.setOnClickListener {
+        if (canManagePayments()) onEdit(payment)
+      }
       paymentActions.setOnClickListener { anchor ->
         PopupMenu(context, anchor).apply {
           inflate(R.menu.payment_card_actions)
+          menu.findItem(R.id.action_edit_payment).isVisible = canManagePayments()
+          menu.findItem(R.id.action_delete_payment).isVisible = canManagePayments()
           setOnMenuItemClickListener { item ->
             when (item.itemId) {
               R.id.action_edit_payment -> onEdit(payment)

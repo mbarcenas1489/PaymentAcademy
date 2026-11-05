@@ -20,6 +20,9 @@ La aplicación es multi-organización y offline-first. Supabase es la fuente rem
 - Eliminación local con borrado lógico y sincronización posterior.
 - Validación local y remota para impedir vigencias de pagos superpuestas.
 - Sincronización offline con WorkManager.
+- Estado global de sincronización con acciones para reintentar.
+- Protección de cambios pendientes antes de cerrar sesión o cambiar de cuenta.
+- Acciones de pagos adaptadas al rol de la organización.
 - Generación de comprobantes PNG al guardar un pago.
 - Regeneración de comprobantes de pagos existentes desde el menú de tres puntos.
 - Envío directo a WhatsApp, WhatsApp Business o, como respaldo, el selector del sistema.
@@ -89,7 +92,7 @@ SUPABASE_PUBLISHABLE_KEY=...
 
 ### Organización activa
 
-`OrganizationScope` obtiene el usuario desde la sesión Supabase y consulta su fila en `organization_members`. Guarda la pareja `user_id`/`organization_id` en SharedPreferences `organization_scope` y la mantiene en memoria con protección mediante `Mutex`.
+`OrganizationScope` obtiene el usuario desde la sesión Supabase y consulta su fila en `organization_members`. Guarda `user_id`, `organization_id` y `role` en SharedPreferences `organization_scope` y mantiene la membresía en memoria con protección mediante `Mutex`. Si una instalación anterior aún no tiene el rol almacenado y está sin conexión, conserva el acceso local por organización y asume temporalmente `staff` para no habilitar acciones privilegiadas.
 
 Actualmente la app admite una sola organización activa. Si un usuario pertenece a varias organizaciones, se usa la primera membresía devuelta por Supabase; todavía no existe selector de organización.
 
@@ -122,11 +125,12 @@ Al iniciar sesión:
 
 1. Se autentica con Supabase.
 2. Se cancela cualquier worker anterior.
-3. Se limpia el contexto de organización y SQLite.
-4. Se descargan miembros y pagos de la nueva organización.
-5. Si la sincronización inicial falla, se agenda WorkManager.
+3. Se comprueba que no existan cambios locales pendientes de una sesión anterior.
+4. Se limpia únicamente el contexto de organización; el caché SQLite sincronizado se conserva y permanece aislado por `organization_id`.
+5. Se descargan miembros y pagos de la nueva organización.
+6. Si la sincronización inicial falla, se agenda WorkManager.
 
-Al cerrar sesión se cancela el worker, se cierra la sesión y se limpian SharedPreferences y SQLite en un bloque `finally`.
+Antes de cerrar sesión se cuentan los miembros y pagos pendientes. Si existen, la UI exige sincronizarlos y no ofrece una salida destructiva. El repositorio vuelve a validar la condición como defensa adicional. Solo cuando no quedan pendientes se cancela el worker, se cierra la sesión y se limpian SharedPreferences y SQLite.
 
 Advertencia: cualquier registro que exista solamente en SQLite y continúe con `sync_pending = 1` puede perderse si el usuario cierra sesión o cambia de cuenta. Antes de cambiar esta lógica o indicar al usuario que cierre sesión, verificar que los iconos de sincronización estén completos. No introducir borrados adicionales del caché sin considerar datos pendientes.
 
@@ -162,7 +166,7 @@ Permisos previstos:
 - Solo `owner` y `admin` pueden editar o eliminar pagos remotamente.
 - Solo `owner` y `admin` administran membresías y planes.
 
-Limitación actual: la interfaz todavía muestra Editar y Eliminar sin consultar el rol del usuario. RLS bloquea la mutación remota para `staff`, pero una acción local puede quedar pendiente o mostrar un estado transitorio. Si se implementan roles en UI, obtener el rol de `organization_members` y ocultar o deshabilitar esas acciones para `staff`.
+La interfaz consulta el rol de `organization_members`. Editar y Eliminar se ocultan para `staff`, el toque directo sobre una tarjeta no abre edición y el repositorio vuelve a comprobar el rol antes de modificar SQLite. RLS continúa siendo la protección definitiva.
 
 Las vistas `payment_overview` y `member_payment_summary` existen en Supabase con `security_invoker = true`, pero la implementación Android actual arma los resúmenes desde SQLite; no asumir que las vistas se consumen en producción.
 
@@ -233,7 +237,7 @@ Pruebas manuales mínimas para cambios de pagos o sincronización:
 
 - Solo hay una organización activa por sesión y no existe selector para usuarios multi-organización.
 - No existe interfaz completa para planes, suscripciones ni administración de usuarios/roles.
-- La UI no adapta todavía las acciones al rol remoto.
+- El rol se aplica a pagos; todavía no existe una pantalla para administrar usuarios o cambiar roles.
 - SQLite está implementado manualmente aunque Room figure en dependencias.
 - WorkManager aparece dos veces en `app/build.gradle.kts`; es una duplicación inocua pendiente de limpieza.
 - La cobertura automática es reducida: hay pruebas de validación de registro, pero faltan pruebas de repositorios, SQLite, sincronización, RLS y comprobantes.

@@ -35,6 +35,7 @@ class PaymentsActivity : AppCompatActivity() {
     ::openPaymentForm,
     ::sharePaymentReceipt,
     ::confirmDelete,
+    canManagePayments = { viewModel.uiState.value.organizationRole.canManagePayments },
   )
   private val viewModel: PaymentsViewModel by viewModels {
     PaymentsViewModelFactory(SupabasePaymentRepository(SupabaseProvider.client, applicationContext), memberId)

@@ -15,10 +15,37 @@ data class PaymentDraft(
   val notes: String?,
 )
 
+data class PendingSyncSummary(
+  val memberCount: Int = 0,
+  val paymentCount: Int = 0,
+) {
+  val totalCount: Int get() = memberCount + paymentCount
+  val hasPendingChanges: Boolean get() = totalCount > 0
+}
+
+enum class OrganizationRole {
+  OWNER,
+  ADMIN,
+  STAFF;
+
+  val canManagePayments: Boolean get() = this == OWNER || this == ADMIN
+
+  companion object {
+    fun fromRemoteValue(value: String): OrganizationRole = when (value.lowercase()) {
+      "owner" -> OWNER
+      "admin" -> ADMIN
+      else -> STAFF
+    }
+  }
+}
+
 interface PaymentRepository {
   suspend fun restoreSession(): Boolean
   suspend fun signIn(email: String, password: String)
   suspend fun signOut()
+  suspend fun getPendingSyncSummary(): PendingSyncSummary
+  suspend fun synchronizePendingChanges(): PendingSyncSummary
+  suspend fun getCurrentOrganizationRole(): OrganizationRole
   suspend fun getPayments(
     fromDate: String? = null,
     toDate: String? = null,

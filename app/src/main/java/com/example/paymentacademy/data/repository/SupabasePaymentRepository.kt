@@ -9,6 +9,8 @@ import com.example.paymentacademy.data.model.MemberPaymentSummary
 import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.domain.PaymentDraft
 import com.example.paymentacademy.domain.PaymentRepository
+import com.example.paymentacademy.domain.PendingSyncSummary
+import com.example.paymentacademy.domain.OrganizationRole
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
@@ -64,13 +66,16 @@ class SupabasePaymentRepository(
   }
 
   override suspend fun signIn(email: String, password: String) {
+    val previousPending = withContext(Dispatchers.IO) { getAllPendingSyncSummary() }
+    check(!previousPending.hasPendingChanges) {
+      "Hay ${previousPending.totalCount} cambios locales pendientes. No se cambiará de cuenta para evitar perderlos."
+    }
     client.auth.signInWith(Email) {
       this.email = email
       this.password = password
     }
     cancelSyncWork()
     organizationScope.clear()
-    dbHelper.clearAllData()
     runCatching {
       SupabaseMemberRepository(client, context).sync()
       sync()
@@ -81,14 +86,34 @@ class SupabasePaymentRepository(
   }
 
   override suspend fun signOut() {
+    val pending = withContext(Dispatchers.IO) { getAllPendingSyncSummary() }
+    check(!pending.hasPendingChanges) {
+      "Hay ${pending.totalCount} cambios pendientes. Sincronízalos antes de cerrar sesión."
+    }
     cancelSyncWork()
     try {
       client.auth.signOut()
     } finally {
       organizationScope.clear()
-      dbHelper.clearAllData()
+      withContext(Dispatchers.IO) { dbHelper.clearAllData() }
     }
   }
+
+  override suspend fun getPendingSyncSummary(): PendingSyncSummary = withContext(Dispatchers.IO) {
+    pendingSyncSummary(organizationScope.activeOrganizationId())
+  }
+
+  override suspend fun synchronizePendingChanges(): PendingSyncSummary =
+    withContext(Dispatchers.IO) {
+      SupabaseMemberRepository(client, context).sync()
+      sync()
+      pendingSyncSummary(organizationScope.activeOrganizationId())
+    }
+
+  override suspend fun getCurrentOrganizationRole(): OrganizationRole =
+    runCatching {
+      OrganizationRole.fromRemoteValue(organizationScope.activeMembership().role)
+    }.getOrDefault(OrganizationRole.STAFF)
 
   override suspend fun getPayments(
     fromDate: String?,
@@ -225,6 +250,9 @@ class SupabasePaymentRepository(
   }
 
   override suspend fun updatePayment(paymentId: String, payment: PaymentDraft) = withContext(Dispatchers.IO) {
+    check(getCurrentOrganizationRole().canManagePayments) {
+      "Tu rol no permite editar pagos."
+    }
     val organizationId = organizationScope.activeOrganizationId()
     ensureValidityAvailableLocal(payment, paymentId, organizationId)
     
@@ -252,6 +280,9 @@ class SupabasePaymentRepository(
   }
 
   override suspend fun deletePayment(paymentId: String) = withContext(Dispatchers.IO) {
+    check(getCurrentOrganizationRole().canManagePayments) {
+      "Tu rol no permite eliminar pagos."
+    }
     val organizationId = organizationScope.activeOrganizationId()
     val values = ContentValues().apply {
       put("is_deleted", 1)
@@ -429,6 +460,42 @@ class SupabasePaymentRepository(
   private suspend fun cancelSyncWork() {
     withContext(Dispatchers.IO) {
       WorkManager.getInstance(context).cancelUniqueWork(SYNC_WORK_NAME).result.get()
+    }
+  }
+
+  private fun pendingSyncSummary(organizationId: String): PendingSyncSummary = PendingSyncSummary(
+    memberCount = countRows(
+      table = "members",
+      selection = "organization_id = ? AND sync_pending = 1",
+      selectionArgs = arrayOf(organizationId),
+    ),
+    paymentCount = countRows(
+      table = "payments",
+      selection = "organization_id = ? AND sync_pending = 1",
+      selectionArgs = arrayOf(organizationId),
+    ),
+  )
+
+  private fun getAllPendingSyncSummary(): PendingSyncSummary = PendingSyncSummary(
+    memberCount = countRows("members", "sync_pending = 1"),
+    paymentCount = countRows("payments", "sync_pending = 1"),
+  )
+
+  private fun countRows(
+    table: String,
+    selection: String,
+    selectionArgs: Array<String>? = null,
+  ): Int {
+    dbHelper.readableDatabase.query(
+      table,
+      arrayOf("COUNT(*)"),
+      selection,
+      selectionArgs,
+      null,
+      null,
+      null,
+    ).use { cursor ->
+      return if (cursor.moveToFirst()) cursor.getInt(0) else 0
     }
   }
 }

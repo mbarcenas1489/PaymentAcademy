@@ -32,6 +32,9 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
             members = dashboard.members,
             movements = dashboard.movements,
             monthlyTotal = dashboard.monthlyTotal,
+            organizationRole = dashboard.organizationRole,
+            syncStatus = dashboard.syncStatus,
+            pendingSyncCount = dashboard.pendingSyncCount,
           )
         }
       }.onFailure { error ->
@@ -60,6 +63,9 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
             members = dashboard.members,
             movements = dashboard.movements,
             monthlyTotal = dashboard.monthlyTotal,
+            organizationRole = dashboard.organizationRole,
+            syncStatus = dashboard.syncStatus,
+            pendingSyncCount = dashboard.pendingSyncCount,
           )
         }
       }.onFailure { error ->
@@ -83,6 +89,9 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
             members = dashboard.members,
             movements = dashboard.movements,
             monthlyTotal = dashboard.monthlyTotal,
+            organizationRole = dashboard.organizationRole,
+            syncStatus = dashboard.syncStatus,
+            pendingSyncCount = dashboard.pendingSyncCount,
           )
         }
       }.onFailure { error ->
@@ -115,6 +124,9 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
             members = dashboard.members,
             movements = dashboard.movements,
             monthlyTotal = dashboard.monthlyTotal,
+            organizationRole = dashboard.organizationRole,
+            syncStatus = dashboard.syncStatus,
+            pendingSyncCount = dashboard.pendingSyncCount,
             message = "Pago eliminado correctamente.",
           )
         }
@@ -126,10 +138,124 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
     }
   }
 
-  fun signOut() {
+  fun requestSignOut() {
     viewModelScope.launch {
-      runCatching { repository.signOut() }
-      _uiState.value = PaymentUiState()
+      runCatching {
+        _uiState.update { it.copy(isLoading = true) }
+        repository.getPendingSyncSummary()
+      }.onSuccess { pending ->
+        if (pending.hasPendingChanges) {
+          _uiState.update {
+            it.copy(
+              isLoading = false,
+              syncStatus = SyncStatus.PENDING,
+              pendingSyncCount = pending.totalCount,
+              pendingLogoutCount = pending.totalCount,
+            )
+          }
+        } else {
+          performSignOut()
+        }
+      }.onFailure { error ->
+        _uiState.update {
+          it.copy(
+            isLoading = false,
+            message = error.userMessage("No fue posible comprobar la sincronización"),
+          )
+        }
+      }
+    }
+  }
+
+  fun synchronizeNow() {
+    viewModelScope.launch {
+      runCatching {
+        _uiState.update {
+          it.copy(isLoading = true, syncStatus = SyncStatus.SYNCING, pendingLogoutCount = null)
+        }
+        repository.synchronizePendingChanges()
+        loadDashboard()
+      }.onSuccess { dashboard ->
+        _uiState.update {
+          it.copy(
+            isLoading = false,
+            members = dashboard.members,
+            movements = dashboard.movements,
+            monthlyTotal = dashboard.monthlyTotal,
+            organizationRole = dashboard.organizationRole,
+            syncStatus = dashboard.syncStatus,
+            pendingSyncCount = dashboard.pendingSyncCount,
+            message = "Sincronización completada.",
+          )
+        }
+      }.onFailure { error ->
+        _uiState.update {
+          it.copy(
+            isLoading = false,
+            syncStatus = SyncStatus.ERROR,
+            message = error.userMessage("No fue posible sincronizar los cambios"),
+          )
+        }
+      }
+    }
+  }
+
+  fun synchronizeAndSignOut() {
+    viewModelScope.launch {
+      runCatching {
+        _uiState.update {
+          it.copy(isLoading = true, syncStatus = SyncStatus.SYNCING, pendingLogoutCount = null)
+        }
+        val pending = repository.synchronizePendingChanges()
+        check(!pending.hasPendingChanges) { "Aún hay cambios pendientes por sincronizar." }
+        repository.signOut()
+      }.onSuccess {
+        _uiState.value = PaymentUiState()
+      }.onFailure { error ->
+        _uiState.update {
+          it.copy(
+            isLoading = false,
+            syncStatus = SyncStatus.ERROR,
+            message = error.userMessage("No se cerró la sesión para proteger tus datos"),
+          )
+        }
+      }
+    }
+  }
+
+  fun cancelSignOut() {
+    _uiState.update { it.copy(pendingLogoutCount = null) }
+  }
+
+  fun backgroundSyncStarted() {
+    if (!_uiState.value.isAuthenticated) return
+    _uiState.update { it.copy(syncStatus = SyncStatus.SYNCING) }
+  }
+
+  fun backgroundSyncQueued() {
+    if (!_uiState.value.isAuthenticated) return
+    _uiState.update { it.copy(syncStatus = SyncStatus.WAITING) }
+  }
+
+  fun refreshSyncStatus() {
+    if (!_uiState.value.isAuthenticated) return
+    viewModelScope.launch {
+      runCatching { repository.getPendingSyncSummary() }
+        .onSuccess { pending ->
+          _uiState.update {
+            it.copy(
+              syncStatus = if (pending.hasPendingChanges) {
+                SyncStatus.PENDING
+              } else {
+                SyncStatus.SYNCED
+              },
+              pendingSyncCount = pending.totalCount,
+            )
+          }
+        }
+        .onFailure {
+          _uiState.update { state -> state.copy(syncStatus = SyncStatus.ERROR) }
+        }
     }
   }
 
@@ -155,11 +281,30 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
         toDate = range.toDate.toString(),
       )
     }
+    val pending = async { repository.getPendingSyncSummary() }
+    val role = async { repository.getCurrentOrganizationRole() }
+    val pendingSummary = pending.await()
     DashboardData(
       members = members.await(),
       movements = movements.await(),
       monthlyTotal = monthlyPayments.await().sumOf { it.amount },
+      organizationRole = role.await(),
+      pendingSyncCount = pendingSummary.totalCount,
+      syncStatus = if (pendingSummary.hasPendingChanges) SyncStatus.PENDING else SyncStatus.SYNCED,
     )
+  }
+
+  private suspend fun performSignOut() {
+    runCatching { repository.signOut() }
+      .onSuccess { _uiState.value = PaymentUiState() }
+      .onFailure { error ->
+        _uiState.update {
+          it.copy(
+            isLoading = false,
+            message = error.userMessage("No fue posible cerrar la sesión"),
+          )
+        }
+      }
   }
 
   private fun Throwable.userMessage(fallback: String): String =
@@ -169,5 +314,8 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
     val members: List<MemberPaymentSummary>,
     val movements: List<PaymentSummary>,
     val monthlyTotal: Double,
+    val organizationRole: com.example.paymentacademy.domain.OrganizationRole,
+    val pendingSyncCount: Int,
+    val syncStatus: SyncStatus,
   )
 }

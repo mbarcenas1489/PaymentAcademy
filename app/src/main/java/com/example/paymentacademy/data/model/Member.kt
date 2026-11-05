@@ -22,6 +22,7 @@ data class Member(
 @Serializable
 data class OrganizationMembership(
   @SerialName("organization_id") val organizationId: String,
+  val role: String = "staff",
 )
 
 @Serializable

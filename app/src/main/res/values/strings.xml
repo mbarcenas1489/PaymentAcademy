@@ -6,6 +6,14 @@
     <string name="password">Contraseña</string>
     <string name="sign_in">Ingresar</string>
     <string name="sign_out">Salir</string>
+    <string name="sync_status_synced">Todo sincronizado</string>
+    <string name="sync_status_syncing">Sincronizando…</string>
+    <string name="sync_status_waiting">Esperando conexión para sincronizar</string>
+    <string name="sync_status_error">No fue posible sincronizar</string>
+    <string name="sync_now">Sincronizar ahora</string>
+    <string name="pending_logout_title">Cambios pendientes</string>
+    <string name="pending_logout_message">Hay %1$d cambios guardados solamente en este dispositivo. Para protegerlos, deben sincronizarse antes de cerrar sesión.</string>
+    <string name="sync_and_sign_out">Sincronizar y salir</string>
     <string name="dashboard_title">Pagos</string>
     <string name="tab_summary">Resumen</string>
     <string name="tab_movements">Movimientos</string>
@@ -116,5 +124,9 @@
     <plurals name="movement_count">
         <item quantity="one">%d movimiento</item>
         <item quantity="other">%d movimientos</item>
+    </plurals>
+    <plurals name="pending_sync_count">
+        <item quantity="one">%d cambio pendiente</item>
+        <item quantity="other">%d cambios pendientes</item>
     </plurals>
 </resources>
