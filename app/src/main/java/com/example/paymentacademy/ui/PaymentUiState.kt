@@ -3,6 +3,7 @@ package com.example.paymentacademy.ui
 import com.example.paymentacademy.data.model.MemberPaymentSummary
 import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.domain.OrganizationRole
+import com.example.paymentacademy.domain.SyncAuditReport
 import java.time.LocalDate
 
 data class PaymentUiState(
@@ -15,6 +16,7 @@ data class PaymentUiState(
   val syncStatus: SyncStatus = SyncStatus.SYNCED,
   val pendingSyncCount: Int = 0,
   val pendingLogoutCount: Int? = null,
+  val syncAuditReport: SyncAuditReport? = null,
   val fromDate: LocalDate = currentMonthStart(),
   val toDate: LocalDate = currentMonthEnd(),
   val message: String? = null,

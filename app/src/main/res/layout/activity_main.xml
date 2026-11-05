@@ -150,6 +150,14 @@
                     android:minHeight="40dp"
                     android:text="@string/sync_now"
                     android:visibility="gone" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/audit_sync_button"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minHeight="40dp"
+                    android:text="@string/audit_sync" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

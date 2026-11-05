@@ -259,6 +259,29 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
     }
   }
 
+  fun auditSynchronization() {
+    if (!_uiState.value.isAuthenticated) return
+    viewModelScope.launch {
+      runCatching {
+        _uiState.update { it.copy(isLoading = true, syncAuditReport = null) }
+        repository.auditSynchronization()
+      }.onSuccess { report ->
+        _uiState.update { it.copy(isLoading = false, syncAuditReport = report) }
+      }.onFailure { error ->
+        _uiState.update {
+          it.copy(
+            isLoading = false,
+            message = error.userMessage("No fue posible verificar la sincronización"),
+          )
+        }
+      }
+    }
+  }
+
+  fun dismissSyncAudit() {
+    _uiState.update { it.copy(syncAuditReport = null) }
+  }
+
   fun messageShown() {
     _uiState.update { it.copy(message = null) }
   }

@@ -11,6 +11,11 @@
     <string name="sync_status_waiting">Esperando conexión para sincronizar</string>
     <string name="sync_status_error">No fue posible sincronizar</string>
     <string name="sync_now">Sincronizar ahora</string>
+    <string name="audit_sync">Verificar</string>
+    <string name="sync_audit_clean_title">Sincronización verificada</string>
+    <string name="sync_audit_difference_title">Se encontraron diferencias</string>
+    <string name="sync_audit_clean_message">SQLite y Supabase contienen los mismos identificadores sincronizados.\n\nMiembros: %1$d locales · %2$d en Supabase\nPagos: %3$d locales · %4$d en Supabase\nCambios pendientes: %5$d</string>
+    <string name="sync_audit_difference_message">La verificación fue de solo lectura y no modificó ningún dato.\n\nMiembros: %1$d locales · %2$d en Supabase\nPagos: %3$d locales · %4$d en Supabase\n\nFaltan localmente: %5$d miembros y %6$d pagos\nSolo existen localmente, aunque figuran sincronizados: %7$d miembros y %8$d pagos\nCambios pendientes: %9$d</string>
     <string name="pending_logout_title">Cambios pendientes</string>
     <string name="pending_logout_message">Hay %1$d cambios guardados solamente en este dispositivo. Para protegerlos, deben sincronizarse antes de cerrar sesión.</string>
     <string name="sync_and_sign_out">Sincronizar y salir</string>

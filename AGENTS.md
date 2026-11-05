@@ -21,6 +21,7 @@ La aplicación es multi-organización y offline-first. Supabase es la fuente rem
 - Validación local y remota para impedir vigencias de pagos superpuestas.
 - Sincronización offline con WorkManager.
 - Estado global de sincronización con acciones para reintentar.
+- Auditoría de solo lectura entre identificadores locales y remotos.
 - Protección de cambios pendientes antes de cerrar sesión o cambiar de cuenta.
 - Acciones de pagos adaptadas al rol de la organización.
 - Generación de comprobantes PNG al guardar un pago.
@@ -118,6 +119,8 @@ Las lecturas de pantalla se hacen desde SQLite. Los repositorios programan sincr
 - El icono de nube en cada pago indica si todavía está pendiente de sincronización.
 
 `SyncWorker` requiere red, utiliza trabajo único con el nombre `PaymentAcademySync` y política `KEEP`. Primero sincroniza miembros y después pagos para respetar las claves foráneas. Si no existe sesión devuelve éxito sin tocar datos; ante errores devuelve `retry()`.
+
+El botón **Verificar** ejecuta `auditSynchronization()`. Compara los IDs de miembros y pagos de la organización activa entre SQLite y Supabase. Distingue registros pendientes de registros que figuraban sincronizados y detecta faltantes en ambos sentidos. Esta auditoría es estrictamente de solo lectura: no debe convertirse en una reparación automática sin respaldo, revisión del reporte y autorización explícita.
 
 ### Inicio y cierre de sesión
 
@@ -232,6 +235,7 @@ Pruebas manuales mínimas para cambios de pagos o sincronización:
 5. Generar el comprobante al guardar y desde los tres puntos de un pago existente.
 6. Probar WhatsApp normal, Business o el selector genérico.
 7. Cerrar sesión únicamente después de sincronizar y verificar que el siguiente usuario no ve el caché anterior.
+8. Ejecutar **Verificar** y confirmar que el reporte no modifica registros aunque encuentre diferencias.
 
 ## Limitaciones y deuda técnica conocida
 

@@ -23,6 +23,23 @@ data class PendingSyncSummary(
   val hasPendingChanges: Boolean get() = totalCount > 0
 }
 
+data class SyncAuditReport(
+  val localMemberCount: Int,
+  val remoteMemberCount: Int,
+  val localPaymentCount: Int,
+  val remotePaymentCount: Int,
+  val membersMissingLocally: Int,
+  val synchronizedMembersMissingRemotely: Int,
+  val paymentsMissingLocally: Int,
+  val synchronizedPaymentsMissingRemotely: Int,
+  val pendingChanges: Int,
+) {
+  val differenceCount: Int
+    get() = membersMissingLocally + synchronizedMembersMissingRemotely +
+      paymentsMissingLocally + synchronizedPaymentsMissingRemotely
+  val hasDifferences: Boolean get() = differenceCount > 0
+}
+
 enum class OrganizationRole {
   OWNER,
   ADMIN,
@@ -46,6 +63,7 @@ interface PaymentRepository {
   suspend fun getPendingSyncSummary(): PendingSyncSummary
   suspend fun synchronizePendingChanges(): PendingSyncSummary
   suspend fun getCurrentOrganizationRole(): OrganizationRole
+  suspend fun auditSynchronization(): SyncAuditReport
   suspend fun getPayments(
     fromDate: String? = null,
     toDate: String? = null,

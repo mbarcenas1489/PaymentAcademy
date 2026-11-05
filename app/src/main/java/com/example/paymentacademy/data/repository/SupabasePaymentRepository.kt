@@ -6,11 +6,13 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.work.WorkManager
 import com.example.paymentacademy.data.local.DatabaseHelper
 import com.example.paymentacademy.data.model.MemberPaymentSummary
+import com.example.paymentacademy.data.model.Member
 import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.domain.PaymentDraft
 import com.example.paymentacademy.domain.PaymentRepository
 import com.example.paymentacademy.domain.PendingSyncSummary
 import com.example.paymentacademy.domain.OrganizationRole
+import com.example.paymentacademy.domain.SyncAuditReport
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
@@ -114,6 +116,59 @@ class SupabasePaymentRepository(
     runCatching {
       OrganizationRole.fromRemoteValue(organizationScope.activeMembership().role)
     }.getOrDefault(OrganizationRole.STAFF)
+
+  override suspend fun auditSynchronization(): SyncAuditReport = withContext(Dispatchers.IO) {
+    val organizationId = organizationScope.activeOrganizationId()
+    val remoteMemberIds = client.from("members")
+      .select { filter { eq("organization_id", organizationId) } }
+      .decodeList<Member>()
+      .mapTo(mutableSetOf()) { it.id }
+    val remotePaymentIds = client.from("payments")
+      .select { filter { eq("organization_id", organizationId) } }
+      .decodeList<PaymentEntity>()
+      .mapTo(mutableSetOf()) { it.id }
+
+    val allLocalMemberIds = localIds(
+      "members",
+      "organization_id = ?",
+      arrayOf(organizationId),
+    )
+    val synchronizedLocalMemberIds = localIds(
+      "members",
+      "organization_id = ? AND sync_pending = 0",
+      arrayOf(organizationId),
+    )
+    val allLocalPaymentIds = localIds(
+      "payments",
+      "organization_id = ?",
+      arrayOf(organizationId),
+    )
+    val visibleLocalPaymentIds = localIds(
+      "payments",
+      "organization_id = ? AND is_deleted = 0",
+      arrayOf(organizationId),
+    )
+    val synchronizedVisiblePaymentIds = localIds(
+      "payments",
+      "organization_id = ? AND sync_pending = 0 AND is_deleted = 0",
+      arrayOf(organizationId),
+    )
+    val pending = pendingSyncSummary(organizationId)
+
+    SyncAuditReport(
+      localMemberCount = allLocalMemberIds.size,
+      remoteMemberCount = remoteMemberIds.size,
+      localPaymentCount = visibleLocalPaymentIds.size,
+      remotePaymentCount = remotePaymentIds.size,
+      membersMissingLocally = (remoteMemberIds - allLocalMemberIds).size,
+      synchronizedMembersMissingRemotely =
+        (synchronizedLocalMemberIds - remoteMemberIds).size,
+      paymentsMissingLocally = (remotePaymentIds - allLocalPaymentIds).size,
+      synchronizedPaymentsMissingRemotely =
+        (synchronizedVisiblePaymentIds - remotePaymentIds).size,
+      pendingChanges = pending.totalCount,
+    )
+  }
 
   override suspend fun getPayments(
     fromDate: String?,
@@ -497,5 +552,25 @@ class SupabasePaymentRepository(
     ).use { cursor ->
       return if (cursor.moveToFirst()) cursor.getInt(0) else 0
     }
+  }
+
+  private fun localIds(
+    table: String,
+    selection: String,
+    selectionArgs: Array<String>,
+  ): Set<String> {
+    val ids = mutableSetOf<String>()
+    dbHelper.readableDatabase.query(
+      table,
+      arrayOf("id"),
+      selection,
+      selectionArgs,
+      null,
+      null,
+      null,
+    ).use { cursor ->
+      while (cursor.moveToNext()) ids += cursor.getString(0)
+    }
+    return ids
   }
 }

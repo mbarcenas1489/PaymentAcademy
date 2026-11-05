@@ -24,6 +24,7 @@ import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.data.remote.SupabaseProvider
 import com.example.paymentacademy.data.repository.SupabasePaymentRepository
 import com.example.paymentacademy.databinding.ActivityMainBinding
+import com.example.paymentacademy.domain.SyncAuditReport
 import com.example.paymentacademy.receipt.PaymentReceiptSharer
 import com.example.paymentacademy.ui.MemberPaymentSummaryAdapter
 import com.example.paymentacademy.ui.PaymentAdapter
@@ -43,6 +44,7 @@ import java.util.Locale
 class MainActivity : AppCompatActivity() {
   private lateinit var binding: ActivityMainBinding
   private var logoutDialog: AlertDialog? = null
+  private var syncAuditDialog: AlertDialog? = null
   private val viewModel: PaymentViewModel by viewModels {
     PaymentViewModelFactory(SupabasePaymentRepository(SupabaseProvider.client, applicationContext))
   }
@@ -90,6 +92,7 @@ class MainActivity : AppCompatActivity() {
     }
     binding.logoutButton.setOnClickListener { viewModel.requestSignOut() }
     binding.syncNowButton.setOnClickListener { viewModel.synchronizeNow() }
+    binding.auditSyncButton.setOnClickListener { viewModel.auditSynchronization() }
 
     lifecycleScope.launch {
       repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -170,6 +173,7 @@ class MainActivity : AppCompatActivity() {
     applyMovementFilter.isEnabled = !state.isLoading
     logoutButton.isEnabled = !state.isLoading
     syncNowButton.isEnabled = !state.isLoading
+    auditSyncButton.isEnabled = !state.isLoading
 
     if (state.isAuthenticated) {
       val locale = Locale.forLanguageTag("es-CO")
@@ -195,11 +199,59 @@ class MainActivity : AppCompatActivity() {
     }
 
     renderLogoutPrompt(state.pendingLogoutCount)
+    renderSyncAudit(state.syncAuditReport)
 
     state.message?.let { message ->
       Snackbar.make(root, message, Snackbar.LENGTH_LONG).show()
       viewModel.messageShown()
     }
+  }
+
+  private fun renderSyncAudit(report: SyncAuditReport?) {
+    if (report == null) {
+      syncAuditDialog?.dismiss()
+      syncAuditDialog = null
+      return
+    }
+    if (syncAuditDialog?.isShowing == true) return
+    val title = if (report.hasDifferences) {
+      R.string.sync_audit_difference_title
+    } else {
+      R.string.sync_audit_clean_title
+    }
+    val message = if (report.hasDifferences) {
+      getString(
+        R.string.sync_audit_difference_message,
+        report.localMemberCount,
+        report.remoteMemberCount,
+        report.localPaymentCount,
+        report.remotePaymentCount,
+        report.membersMissingLocally,
+        report.paymentsMissingLocally,
+        report.synchronizedMembersMissingRemotely,
+        report.synchronizedPaymentsMissingRemotely,
+        report.pendingChanges,
+      )
+    } else {
+      getString(
+        R.string.sync_audit_clean_message,
+        report.localMemberCount,
+        report.remoteMemberCount,
+        report.localPaymentCount,
+        report.remotePaymentCount,
+        report.pendingChanges,
+      )
+    }
+    syncAuditDialog = MaterialAlertDialogBuilder(this)
+      .setTitle(title)
+      .setMessage(message)
+      .setPositiveButton(R.string.done) { _, _ -> viewModel.dismissSyncAudit() }
+      .setOnCancelListener { viewModel.dismissSyncAudit() }
+      .create()
+      .also { dialog ->
+        dialog.setOnDismissListener { syncAuditDialog = null }
+        dialog.show()
+      }
   }
 
   private fun renderSyncStatus(status: SyncStatus, pendingCount: Int) = with(binding) {
