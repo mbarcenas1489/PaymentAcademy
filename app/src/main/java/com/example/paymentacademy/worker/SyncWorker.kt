@@ -20,6 +20,9 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters) :
         return try {
             // Garantizar que la sesión esté cargada antes de interactuar en segundo plano
             SupabaseProvider.client.auth.awaitInitialization()
+            if (SupabaseProvider.client.auth.currentSessionOrNull() == null) {
+                return Result.success()
+            }
 
             val memberRepo = SupabaseMemberRepository(SupabaseProvider.client, applicationContext)
             val paymentRepo = SupabasePaymentRepository(SupabaseProvider.client, applicationContext)

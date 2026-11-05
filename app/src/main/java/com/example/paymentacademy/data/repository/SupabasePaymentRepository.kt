@@ -3,9 +3,9 @@ package com.example.paymentacademy.data.repository
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import androidx.work.WorkManager
 import com.example.paymentacademy.data.local.DatabaseHelper
 import com.example.paymentacademy.data.model.MemberPaymentSummary
-import com.example.paymentacademy.data.model.OrganizationMembership
 import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.domain.PaymentDraft
 import com.example.paymentacademy.domain.PaymentRepository
@@ -56,7 +56,7 @@ class SupabasePaymentRepository(
   private val context: Context
 ) : PaymentRepository {
   private val dbHelper = DatabaseHelper(context)
-  private var organizationId: String? = null
+  private val organizationScope = OrganizationScope(client, context)
 
   override suspend fun restoreSession(): Boolean {
     client.auth.awaitInitialization()
@@ -68,9 +68,27 @@ class SupabasePaymentRepository(
       this.email = email
       this.password = password
     }
+    cancelSyncWork()
+    organizationScope.clear()
+    dbHelper.clearAllData()
+    runCatching {
+      SupabaseMemberRepository(client, context).sync()
+      sync()
+    }.onFailure { error ->
+      android.util.Log.w("PaymentRepository", "La sincronización inicial se reintentará.", error)
+      com.example.paymentacademy.worker.SyncWorker.schedule(context)
+    }
   }
 
-  override suspend fun signOut() = client.auth.signOut()
+  override suspend fun signOut() {
+    cancelSyncWork()
+    try {
+      client.auth.signOut()
+    } finally {
+      organizationScope.clear()
+      dbHelper.clearAllData()
+    }
+  }
 
   override suspend fun getPayments(
     fromDate: String?,
@@ -78,12 +96,13 @@ class SupabasePaymentRepository(
     memberId: String?,
     resultLimit: Long?,
   ): List<PaymentSummary> = withContext(Dispatchers.IO) {
+    val organizationId = organizationScope.activeOrganizationId()
     com.example.paymentacademy.worker.SyncWorker.schedule(context)
     
     val list = mutableListOf<PaymentSummary>()
     val db = dbHelper.readableDatabase
-    var selection = "p.is_deleted = 0"
-    val args = mutableListOf<String>()
+    var selection = "p.organization_id = ? AND p.is_deleted = 0"
+    val args = mutableListOf(organizationId)
 
     if (fromDate != null) {
       selection += " AND p.paid_on >= ?"
@@ -101,7 +120,8 @@ class SupabasePaymentRepository(
     var query = """
         SELECT p.*, m.full_name as member_name 
         FROM payments p 
-        LEFT JOIN members m ON p.member_id = m.id 
+        LEFT JOIN members m
+          ON p.member_id = m.id AND p.organization_id = m.organization_id
         WHERE $selection 
         ORDER BY p.paid_on DESC, p.created_at DESC
     """
@@ -133,6 +153,7 @@ class SupabasePaymentRepository(
   }
 
   override suspend fun getMemberPaymentSummaries(): List<MemberPaymentSummary> = withContext(Dispatchers.IO) {
+    val organizationId = organizationScope.activeOrganizationId()
     com.example.paymentacademy.worker.SyncWorker.schedule(context)
 
     val list = mutableListOf<MemberPaymentSummary>()
@@ -143,13 +164,14 @@ class SupabasePaymentRepository(
         FROM members m
         LEFT JOIN payments p ON p.id = (
             SELECT id FROM payments 
-            WHERE member_id = m.id AND is_deleted = 0 
+            WHERE organization_id = m.organization_id AND member_id = m.id AND is_deleted = 0
             ORDER BY valid_until DESC LIMIT 1
         )
+        WHERE m.organization_id = ?
         ORDER BY m.full_name ASC
     """
     
-    dbHelper.readableDatabase.rawQuery(query, emptyArray()).use { cursor ->
+    dbHelper.readableDatabase.rawQuery(query, arrayOf(organizationId)).use { cursor ->
       while (cursor.moveToNext()) {
         list.add(
           MemberPaymentSummary(
@@ -175,8 +197,8 @@ class SupabasePaymentRepository(
   }
 
   override suspend fun createPayment(payment: PaymentDraft) = withContext(Dispatchers.IO) {
-    val orgId = currentOrganizationId()
-    ensureValidityAvailableLocal(payment)
+    val orgId = organizationScope.activeOrganizationId()
+    ensureValidityAvailableLocal(payment, organizationId = orgId)
     
     val newId = UUID.randomUUID().toString()
     val today = LocalDate.now().toString()
@@ -203,7 +225,8 @@ class SupabasePaymentRepository(
   }
 
   override suspend fun updatePayment(paymentId: String, payment: PaymentDraft) = withContext(Dispatchers.IO) {
-    ensureValidityAvailableLocal(payment, paymentId)
+    val organizationId = organizationScope.activeOrganizationId()
+    ensureValidityAvailableLocal(payment, paymentId, organizationId)
     
     val values = ContentValues().apply {
       put("member_id", payment.memberId)
@@ -217,30 +240,44 @@ class SupabasePaymentRepository(
       put("notes", payment.notes)
       put("sync_pending", 1)
     }
-    val rows = dbHelper.writableDatabase.update("payments", values, "id = ?", arrayOf(paymentId))
+    val rows = dbHelper.writableDatabase.update(
+      "payments",
+      values,
+      "id = ? AND organization_id = ?",
+      arrayOf(paymentId, organizationId),
+    )
     if (rows == 0) error("No tienes permiso para editar este pago o no existe localmente.")
 
     com.example.paymentacademy.worker.SyncWorker.schedule(context)
   }
 
   override suspend fun deletePayment(paymentId: String) = withContext(Dispatchers.IO) {
+    val organizationId = organizationScope.activeOrganizationId()
     val values = ContentValues().apply {
       put("is_deleted", 1)
       put("sync_pending", 1)
     }
-    val rows = dbHelper.writableDatabase.update("payments", values, "id = ?", arrayOf(paymentId))
+    val rows = dbHelper.writableDatabase.update(
+      "payments",
+      values,
+      "id = ? AND organization_id = ?",
+      arrayOf(paymentId, organizationId),
+    )
     if (rows == 0) error("No tienes permiso para eliminar este pago o no existe localmente.")
 
     com.example.paymentacademy.worker.SyncWorker.schedule(context)
   }
 
   suspend fun sync() {
-    syncUpPayments()
-    syncDownPayments()
+    val organizationId = organizationScope.activeOrganizationId()
+    syncUpPayments(organizationId)
+    syncDownPayments(organizationId)
   }
 
-  private suspend fun syncDownPayments() {
-    val remotePayments = client.from("payments").select().decodeList<PaymentEntity>()
+  private suspend fun syncDownPayments(organizationId: String) {
+    val remotePayments = client.from("payments")
+      .select { filter { eq("organization_id", organizationId) } }
+      .decodeList<PaymentEntity>()
     val db = dbHelper.writableDatabase
     db.beginTransaction()
     try {
@@ -269,11 +306,19 @@ class SupabasePaymentRepository(
     }
   }
 
-  private suspend fun syncUpPayments() {
+  private suspend fun syncUpPayments(organizationId: String) {
     val db = dbHelper.readableDatabase
     
     // 1. Sync Upserts (Inserts and Updates)
-    val cursor = db.query("payments", null, "sync_pending = 1 AND is_deleted = 0", null, null, null, null)
+    val cursor = db.query(
+      "payments",
+      null,
+      "organization_id = ? AND sync_pending = 1 AND is_deleted = 0",
+      arrayOf(organizationId),
+      null,
+      null,
+      null,
+    )
     val upserts = mutableListOf<UpsertPaymentRecord>()
     val upsertIds = mutableListOf<String>()
     
@@ -304,7 +349,12 @@ class SupabasePaymentRepository(
         val writeDb = dbHelper.writableDatabase
         for (id in upsertIds) {
           val values = ContentValues().apply { put("sync_pending", 0) }
-          writeDb.update("payments", values, "id = ?", arrayOf(id))
+          writeDb.update(
+            "payments",
+            values,
+            "id = ? AND organization_id = ?",
+            arrayOf(id, organizationId),
+          )
         }
       } catch (e: Exception) {
         android.util.Log.e("PaymentRepository", "Error syncing upserts", e)
@@ -313,7 +363,15 @@ class SupabasePaymentRepository(
     }
 
     // 2. Sync Deletes
-    val delCursor = db.query("payments", arrayOf("id"), "is_deleted = 1 AND sync_pending = 1", null, null, null, null)
+    val delCursor = db.query(
+      "payments",
+      arrayOf("id"),
+      "organization_id = ? AND is_deleted = 1 AND sync_pending = 1",
+      arrayOf(organizationId),
+      null,
+      null,
+      null,
+    )
     val deleteIds = mutableListOf<String>()
     delCursor.use {
       while (it.moveToNext()) {
@@ -324,8 +382,17 @@ class SupabasePaymentRepository(
     if (deleteIds.isNotEmpty()) {
       for (id in deleteIds) {
         try {
-          client.from("payments").delete { filter { eq("id", id) } }
-          dbHelper.writableDatabase.delete("payments", "id = ?", arrayOf(id))
+          client.from("payments").delete {
+            filter {
+              eq("id", id)
+              eq("organization_id", organizationId)
+            }
+          }
+          dbHelper.writableDatabase.delete(
+            "payments",
+            "id = ? AND organization_id = ?",
+            arrayOf(id, organizationId),
+          )
         } catch (e: Exception) {
           android.util.Log.e("PaymentRepository", "Error syncing deletes", e)
           throw e
@@ -334,38 +401,14 @@ class SupabasePaymentRepository(
     }
   }
 
-  private suspend fun currentOrganizationId(): String {
-    organizationId?.let { return it }
-    
-    // First try from local DB
-    val db = dbHelper.readableDatabase
-    db.query("members", arrayOf("organization_id"), null, null, null, null, null, "1").use { cursor ->
-        if (cursor.moveToFirst()) {
-            val orgId = cursor.getString(0)
-            if (!orgId.isNullOrBlank()) {
-                organizationId = orgId
-                return orgId
-            }
-        }
-    }
-
-    // Then try Supabase
-    val membership = client.from("organization_members")
-      .select()
-      .decodeList<OrganizationMembership>()
-      .firstOrNull()
-      ?: error("Tu usuario no está asociado a una academia o gimnasio.")
-    return membership.organizationId.also { organizationId = it }
-  }
-
   private suspend fun ensureValidityAvailableLocal(
     payment: PaymentDraft,
     excludedPaymentId: String? = null,
+    organizationId: String,
   ) {
-    val currentOrgId = currentOrganizationId()
     val db = dbHelper.readableDatabase
     var selection = "organization_id = ? AND member_id = ? AND valid_from <= ? AND valid_until >= ? AND is_deleted = 0"
-    val args = mutableListOf(currentOrgId, payment.memberId, payment.validUntil, payment.validFrom)
+    val args = mutableListOf(organizationId, payment.memberId, payment.validUntil, payment.validFrom)
     
     if (excludedPaymentId != null) {
        selection += " AND id != ?"
@@ -376,6 +419,16 @@ class SupabasePaymentRepository(
         if (cursor.count > 0) {
             error("Ya existe un pago para este miembro dentro del período de vigencia seleccionado.")
         }
+    }
+  }
+
+  private companion object {
+    const val SYNC_WORK_NAME = "PaymentAcademySync"
+  }
+
+  private suspend fun cancelSyncWork() {
+    withContext(Dispatchers.IO) {
+      WorkManager.getInstance(context).cancelUniqueWork(SYNC_WORK_NAME).result.get()
     }
   }
 }

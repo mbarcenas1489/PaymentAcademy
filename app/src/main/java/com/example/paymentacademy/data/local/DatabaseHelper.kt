@@ -4,7 +4,12 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, "paymentacademy.db", null, 1) {
+class DatabaseHelper(context: Context) : SQLiteOpenHelper(
+    context,
+    "paymentacademy.db",
+    null,
+    DATABASE_VERSION,
+) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE members (
@@ -41,11 +46,39 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, "paymentacade
                 is_deleted INTEGER DEFAULT 0
             )
         """)
+
+        createOrganizationIndexes(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS payments")
-        db.execSQL("DROP TABLE IF EXISTS members")
-        onCreate(db)
+        if (oldVersion < 2) createOrganizationIndexes(db)
+    }
+
+    fun clearAllData() {
+        writableDatabase.beginTransaction()
+        try {
+            writableDatabase.delete("payments", null, null)
+            writableDatabase.delete("members", null, null)
+            writableDatabase.setTransactionSuccessful()
+        } finally {
+            writableDatabase.endTransaction()
+        }
+    }
+
+    private fun createOrganizationIndexes(db: SQLiteDatabase) {
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS members_organization_idx ON members(organization_id)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS payments_organization_idx ON payments(organization_id)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS payments_organization_member_idx " +
+                "ON payments(organization_id, member_id)",
+        )
+    }
+
+    private companion object {
+        const val DATABASE_VERSION = 2
     }
 }

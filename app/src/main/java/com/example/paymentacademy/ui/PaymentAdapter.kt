@@ -17,6 +17,7 @@ import java.util.Locale
 
 class PaymentAdapter(
   private val onEdit: (PaymentSummary) -> Unit,
+  private val onShareReceipt: (PaymentSummary) -> Unit,
   private val onDelete: (PaymentSummary) -> Unit,
 ) : ListAdapter<PaymentSummary, PaymentAdapter.PaymentViewHolder>(DiffCallback) {
   private val locale = Locale.forLanguageTag("es-CO")
@@ -89,6 +90,7 @@ class PaymentAdapter(
           setOnMenuItemClickListener { item ->
             when (item.itemId) {
               R.id.action_edit_payment -> onEdit(payment)
+              R.id.action_share_receipt -> onShareReceipt(payment)
               R.id.action_delete_payment -> onDelete(payment)
               else -> return@setOnMenuItemClickListener false
             }
