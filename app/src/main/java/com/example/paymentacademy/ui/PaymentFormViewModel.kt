@@ -18,6 +18,7 @@ data class PaymentFormUiState(
   val isSaving: Boolean = false,
   val members: List<Member> = emptyList(),
   val isSaved: Boolean = false,
+  val savedPaymentId: String? = null,
   val memberError: String? = null,
   val amountError: String? = null,
   val dateError: String? = null,
@@ -109,9 +110,12 @@ class PaymentFormViewModel(
           paymentRepository.createPayment(draft)
         } else {
           paymentRepository.updatePayment(paymentId, draft)
+          paymentId
         }
-      }.onSuccess {
-        _uiState.update { it.copy(isSaving = false, isSaved = true) }
+      }.onSuccess { savedPaymentId ->
+        _uiState.update {
+          it.copy(isSaving = false, isSaved = true, savedPaymentId = savedPaymentId)
+        }
       }.onFailure { error ->
         _uiState.update {
           it.copy(

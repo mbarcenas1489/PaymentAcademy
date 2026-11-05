@@ -186,7 +186,7 @@ Las vistas `payment_overview` y `member_payment_summary` existen en Supabase con
 
 ## Comprobantes y WhatsApp
 
-El comprobante incluye miembro, monto, concepto, método, fecha de pago, vigencia y referencia opcional. Se puede generar inmediatamente después de guardar o desde los tres puntos de un pago existente.
+El comprobante incluye miembro, documento cuando está disponible, monto, concepto, método, fecha de pago, vigencia, referencia opcional, número corto derivado del ID del pago y fecha/hora de generación. Se puede generar inmediatamente después de guardar o desde los tres puntos de un pago existente. El Canvas admite hasta dos líneas en valores extensos para evitar que nombres o referencias se salgan del diseño.
 
 El envío prueba en este orden:
 

@@ -18,6 +18,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.text.NumberFormat
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -30,13 +31,16 @@ data class PaymentReceiptData(
   val validFrom: String,
   val validUntil: String,
   val reference: String?,
+  val receiptNumber: String? = null,
+  val memberDocument: String? = null,
 )
 
 object PaymentReceiptSharer {
   private const val WIDTH = 1080
-  private const val HEIGHT = 1350
+  private const val HEIGHT = 1880
   private val locale = Locale.forLanguageTag("es-CO")
   private val longDate = DateTimeFormatter.ofPattern("d 'de' MMMM 'de' uuuu", locale)
+  private val generatedAtFormat = DateTimeFormatter.ofPattern("d MMM uuuu, h:mm a", locale)
 
   fun share(context: Context, payment: PaymentSummary): Boolean = share(
     context,
@@ -49,6 +53,8 @@ object PaymentReceiptSharer {
       validFrom = payment.validFrom ?: payment.paidOn,
       validUntil = payment.validUntil ?: payment.paidOn,
       reference = payment.reference,
+      receiptNumber = payment.id,
+      memberDocument = payment.memberDocument,
     ),
   )
 
@@ -119,9 +125,22 @@ object PaymentReceiptSharer {
     drawText(canvas, paint, context.getString(com.example.paymentacademy.R.string.app_name), 190f, 100f, 40f, Color.WHITE, true)
     drawText(canvas, paint, "COMPROBANTE DE PAGO", 190f, 157f, 48f, Color.WHITE, true)
     drawText(canvas, paint, "Pago recibido correctamente", 190f, 207f, 28f, Color.rgb(255, 224, 211))
+    data.receiptNumber?.takeIf { it.isNotBlank() }?.let { number ->
+      drawText(
+        canvas,
+        paint,
+        "N.º ${number.take(8).uppercase()}",
+        970f,
+        235f,
+        24f,
+        Color.rgb(255, 224, 211),
+        true,
+        Paint.Align.RIGHT,
+      )
+    }
 
     paint.color = Color.WHITE
-    canvas.drawRoundRect(RectF(56f, 304f, 1024f, 1250f), 32f, 32f, paint)
+    canvas.drawRoundRect(RectF(56f, 304f, 1024f, 1770f), 32f, 32f, paint)
 
     drawText(canvas, paint, "TOTAL PAGADO", 540f, 395f, 27f, Color.rgb(118, 95, 82), true, Paint.Align.CENTER)
     drawText(
@@ -144,6 +163,9 @@ object PaymentReceiptSharer {
 
     var y = 700f
     y = drawRow(canvas, paint, "RECIBIDO DE", data.memberName, y)
+    data.memberDocument?.takeIf { it.isNotBlank() }?.let { document ->
+      y = drawRow(canvas, paint, "DOCUMENTO", document, y)
+    }
     y = drawRow(canvas, paint, "CONCEPTO", data.paymentType, y)
     y = drawRow(canvas, paint, "MÉTODO", data.paymentMethod, y)
     y = drawRow(canvas, paint, "FECHA DE PAGO", formatDate(data.paidOn), y)
@@ -163,8 +185,19 @@ object PaymentReceiptSharer {
       paint,
       "Gracias por tu pago",
       540f,
-      1300f,
+      1820f,
       27f,
+      Color.rgb(118, 95, 82),
+      false,
+      Paint.Align.CENTER,
+    )
+    drawText(
+      canvas,
+      paint,
+      "Generado: ${LocalDateTime.now().format(generatedAtFormat)}",
+      540f,
+      1855f,
+      20f,
       Color.rgb(118, 95, 82),
       false,
       Paint.Align.CENTER,
@@ -174,8 +207,46 @@ object PaymentReceiptSharer {
 
   private fun drawRow(canvas: Canvas, paint: Paint, label: String, value: String, y: Float): Float {
     drawText(canvas, paint, label, 115f, y, 23f, Color.rgb(118, 95, 82), true)
-    drawText(canvas, paint, value, 115f, y + 48f, 33f, Color.rgb(37, 26, 20), false)
-    return y + 116f
+    paint.textSize = 33f
+    paint.typeface = android.graphics.Typeface.DEFAULT
+    val lines = wrapText(value, paint, 850f, maxLines = 2)
+    lines.forEachIndexed { index, line ->
+      drawText(
+        canvas,
+        paint,
+        line,
+        115f,
+        y + 48f + (index * 40f),
+        33f,
+        Color.rgb(37, 26, 20),
+        false,
+      )
+    }
+    return y + 112f + ((lines.size - 1).coerceAtLeast(0) * 40f)
+  }
+
+  private fun wrapText(text: String, paint: Paint, maxWidth: Float, maxLines: Int): List<String> {
+    val words = text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    if (words.isEmpty()) return listOf("")
+    val lines = mutableListOf<String>()
+    var current = ""
+    for (word in words) {
+      val candidate = if (current.isEmpty()) word else "$current $word"
+      if (paint.measureText(candidate) <= maxWidth || current.isEmpty()) {
+        current = candidate
+      } else {
+        lines += current
+        current = word
+        if (lines.size == maxLines - 1) break
+      }
+    }
+    if (lines.size < maxLines && current.isNotEmpty()) lines += current
+    if (lines.size == maxLines && words.joinToString(" ") != lines.joinToString(" ")) {
+      var last = lines.last()
+      while (last.isNotEmpty() && paint.measureText("$last…") > maxWidth) last = last.dropLast(1)
+      lines[lines.lastIndex] = "$last…"
+    }
+    return lines
   }
 
   private fun drawText(
@@ -193,7 +264,7 @@ object PaymentReceiptSharer {
     paint.textSize = size
     paint.textAlign = align
     paint.typeface = if (bold) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
-    canvas.drawText(text.take(52), x, y, paint)
+    canvas.drawText(text, x, y, paint)
   }
 
   private fun formatDate(value: String): String =

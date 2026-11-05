@@ -49,6 +49,7 @@ class PaymentFormActivity : AppCompatActivity() {
   private var selectedMember: Member? = null
   private var membersLoaded = false
   private var savedDialogVisible = false
+  private var savedPaymentId: String? = null
   private val memberAdapter = MemberSelectionAdapter(::selectMember)
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -284,6 +285,7 @@ class PaymentFormActivity : AppCompatActivity() {
     validFromLayout.error = state.validFromError
     validUntilLayout.error = state.validUntilError
     if (state.isSaved) {
+      savedPaymentId = state.savedPaymentId
       setResult(Activity.RESULT_OK)
       showPaymentSavedDialog()
       return@with
@@ -324,6 +326,8 @@ class PaymentFormActivity : AppCompatActivity() {
     validFrom = binding.validFromInput.text?.toString().orEmpty(),
     validUntil = binding.validUntilInput.text?.toString().orEmpty(),
     reference = binding.referenceInput.text?.toString()?.trim()?.ifBlank { null },
+    receiptNumber = savedPaymentId,
+    memberDocument = selectedMember?.documentNumber,
   )
 
   private fun updateReview() {

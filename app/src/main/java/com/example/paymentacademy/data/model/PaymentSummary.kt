@@ -9,6 +9,7 @@ data class PaymentSummary(
   @SerialName("organization_id") val organizationId: String,
   @SerialName("member_id") val memberId: String,
   @SerialName("member_name") val memberName: String,
+  @SerialName("member_document") val memberDocument: String? = null,
   @SerialName("subscription_id") val subscriptionId: String? = null,
   @SerialName("plan_name") val planName: String? = null,
   val amount: Double,

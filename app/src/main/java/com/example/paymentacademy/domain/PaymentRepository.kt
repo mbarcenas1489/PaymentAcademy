@@ -72,7 +72,7 @@ interface PaymentRepository {
   ): List<PaymentSummary>
   suspend fun getRecentPayments(): List<PaymentSummary> = getPayments(resultLimit = 100)
   suspend fun getMemberPaymentSummaries(): List<MemberPaymentSummary>
-  suspend fun createPayment(payment: PaymentDraft)
+  suspend fun createPayment(payment: PaymentDraft): String
   suspend fun updatePayment(paymentId: String, payment: PaymentDraft)
   suspend fun deletePayment(paymentId: String)
 }

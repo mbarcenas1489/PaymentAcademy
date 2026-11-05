@@ -198,7 +198,7 @@ class SupabasePaymentRepository(
     }
 
     var query = """
-        SELECT p.*, m.full_name as member_name 
+        SELECT p.*, m.full_name as member_name, m.document_number as member_document
         FROM payments p 
         LEFT JOIN members m
           ON p.member_id = m.id AND p.organization_id = m.organization_id
@@ -215,6 +215,7 @@ class SupabasePaymentRepository(
             organizationId = cursor.getString(cursor.getColumnIndexOrThrow("organization_id")),
             memberId = cursor.getString(cursor.getColumnIndexOrThrow("member_id")),
             memberName = cursor.getString(cursor.getColumnIndexOrThrow("member_name")) ?: "Desconocido",
+            memberDocument = cursor.getString(cursor.getColumnIndexOrThrow("member_document")),
             amount = cursor.getDouble(cursor.getColumnIndexOrThrow("amount")),
             paidOn = cursor.getString(cursor.getColumnIndexOrThrow("paid_on")),
             paymentType = cursor.getString(cursor.getColumnIndexOrThrow("payment_type")),
@@ -276,7 +277,7 @@ class SupabasePaymentRepository(
     list
   }
 
-  override suspend fun createPayment(payment: PaymentDraft) = withContext(Dispatchers.IO) {
+  override suspend fun createPayment(payment: PaymentDraft): String = withContext(Dispatchers.IO) {
     val orgId = organizationScope.activeOrganizationId()
     ensureValidityAvailableLocal(payment, organizationId = orgId)
     
@@ -302,6 +303,7 @@ class SupabasePaymentRepository(
     dbHelper.writableDatabase.insert("payments", null, values)
 
     com.example.paymentacademy.worker.SyncWorker.schedule(context)
+    newId
   }
 
   override suspend fun updatePayment(paymentId: String, payment: PaymentDraft) = withContext(Dispatchers.IO) {
