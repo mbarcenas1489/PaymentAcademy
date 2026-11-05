@@ -6,7 +6,6 @@ import android.database.sqlite.SQLiteDatabase
 import com.example.paymentacademy.data.local.DatabaseHelper
 import com.example.paymentacademy.data.model.Member
 import com.example.paymentacademy.data.model.NewMemberRecord
-import com.example.paymentacademy.data.model.OrganizationMembership
 import com.example.paymentacademy.domain.MemberRepository
 import com.example.paymentacademy.domain.NewMember
 import io.github.jan.supabase.SupabaseClient
@@ -34,18 +33,27 @@ class SupabaseMemberRepository(
   private val context: Context
 ) : MemberRepository {
   private val dbHelper = DatabaseHelper(context)
-  private var organizationId: String? = null
+  private val organizationScope = OrganizationScope(client, context)
 
   override suspend fun getMembers(): List<Member> = withContext(Dispatchers.IO) {
+    val organizationId = organizationScope.activeOrganizationId()
     // Sincronizar de fondo usando WorkManager para NO bloquear la pantalla
     com.example.paymentacademy.worker.SyncWorker.schedule(context)
     
-    return@withContext getLocalMembers()
+    return@withContext getLocalMembers(organizationId)
   }
 
-  private fun getLocalMembers(): List<Member> {
+  private fun getLocalMembers(organizationId: String): List<Member> {
     val members = mutableListOf<Member>()
-    val cursor = dbHelper.readableDatabase.query("members", null, null, null, null, null, "full_name COLLATE NOCASE ASC")
+    val cursor = dbHelper.readableDatabase.query(
+      "members",
+      null,
+      "organization_id = ?",
+      arrayOf(organizationId),
+      null,
+      null,
+      "full_name COLLATE NOCASE ASC",
+    )
     with(cursor) {
       while (moveToNext()) {
         members.add(
@@ -71,7 +79,7 @@ class SupabaseMemberRepository(
   }
 
   override suspend fun createMember(member: NewMember) = withContext(Dispatchers.IO) {
-    val orgId = currentOrganizationId()
+    val orgId = organizationScope.activeOrganizationId()
     val newId = UUID.randomUUID().toString()
     val today = LocalDate.now().toString()
     
@@ -94,7 +102,7 @@ class SupabaseMemberRepository(
 
     // 2. Intentar subir inmediatamente
     try {
-      syncUp()
+      syncUp(orgId)
     } catch (e: Exception) {
       // Sin internet, no importa, ya está local y se subirá luego
     }
@@ -104,12 +112,15 @@ class SupabaseMemberRepository(
   }
 
   suspend fun sync() {
-    syncUp()
-    syncDown()
+    val organizationId = organizationScope.activeOrganizationId()
+    syncUp(organizationId)
+    syncDown(organizationId)
   }
 
-  private suspend fun syncDown() {
-    val remoteMembers = client.from("members").select().decodeList<Member>()
+  private suspend fun syncDown(organizationId: String) {
+    val remoteMembers = client.from("members")
+      .select { filter { eq("organization_id", organizationId) } }
+      .decodeList<Member>()
     val db = dbHelper.writableDatabase
     db.beginTransaction()
     try {
@@ -136,9 +147,17 @@ class SupabaseMemberRepository(
     }
   }
 
-  private suspend fun syncUp() {
+  private suspend fun syncUp(organizationId: String) {
     val db = dbHelper.readableDatabase
-    val cursor = db.query("members", null, "sync_pending = 1", null, null, null, null)
+    val cursor = db.query(
+      "members",
+      null,
+      "organization_id = ? AND sync_pending = 1",
+      arrayOf(organizationId),
+      null,
+      null,
+      null,
+    )
     val pending = mutableListOf<UpsertMemberRecord>()
     val pendingIds = mutableListOf<String>()
     
@@ -167,7 +186,12 @@ class SupabaseMemberRepository(
           val writeDb = dbHelper.writableDatabase
           for (id in pendingIds) {
               val values = ContentValues().apply { put("sync_pending", 0) }
-              writeDb.update("members", values, "id = ?", arrayOf(id))
+              writeDb.update(
+                "members",
+                values,
+                "id = ? AND organization_id = ?",
+                arrayOf(id, organizationId),
+              )
           }
       } catch (e: Exception) {
           android.util.Log.e("MemberRepository", "Error syncing up members", e)
@@ -176,13 +200,4 @@ class SupabaseMemberRepository(
     }
   }
 
-  private suspend fun currentOrganizationId(): String {
-    organizationId?.let { return it }
-    val membership = client.from("organization_members")
-      .select()
-      .decodeList<OrganizationMembership>()
-      .firstOrNull()
-      ?: error("Tu usuario no está asociado a una academia o gimnasio.")
-    return membership.organizationId.also { organizationId = it }
-  }
 }

@@ -18,6 +18,7 @@ import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.data.remote.SupabaseProvider
 import com.example.paymentacademy.data.repository.SupabasePaymentRepository
 import com.example.paymentacademy.databinding.ActivityPaymentsBinding
+import com.example.paymentacademy.receipt.PaymentReceiptSharer
 import com.example.paymentacademy.ui.PaymentAdapter
 import com.example.paymentacademy.ui.PaymentsUiState
 import com.example.paymentacademy.ui.PaymentsViewModel
@@ -30,7 +31,11 @@ class PaymentsActivity : AppCompatActivity() {
   private lateinit var binding: ActivityPaymentsBinding
   private val memberId: String? by lazy { intent.getStringExtra(EXTRA_MEMBER_ID) }
   private val memberName: String? by lazy { intent.getStringExtra(EXTRA_MEMBER_NAME) }
-  private val paymentsAdapter = PaymentAdapter(::openPaymentForm, ::confirmDelete)
+  private val paymentsAdapter = PaymentAdapter(
+    ::openPaymentForm,
+    ::sharePaymentReceipt,
+    ::confirmDelete,
+  )
   private val viewModel: PaymentsViewModel by viewModels {
     PaymentsViewModelFactory(SupabasePaymentRepository(SupabaseProvider.client, applicationContext), memberId)
   }
@@ -118,6 +123,13 @@ class PaymentsActivity : AppCompatActivity() {
       .setNegativeButton(R.string.cancel, null)
       .setPositiveButton(R.string.delete) { _, _ -> viewModel.deletePayment(payment.id) }
       .show()
+  }
+
+  private fun sharePaymentReceipt(payment: PaymentSummary) {
+    val shared = runCatching { PaymentReceiptSharer.share(this, payment) }.getOrDefault(false)
+    if (!shared) {
+      Snackbar.make(binding.root, R.string.receipt_share_error, Snackbar.LENGTH_LONG).show()
+    }
   }
 
   companion object {

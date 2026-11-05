@@ -12,6 +12,8 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.net.Uri
 import androidx.core.content.FileProvider
+import com.example.paymentacademy.R
+import com.example.paymentacademy.data.model.PaymentSummary
 import java.io.File
 import java.io.FileOutputStream
 import java.text.NumberFormat
@@ -35,6 +37,20 @@ object PaymentReceiptSharer {
   private const val HEIGHT = 1350
   private val locale = Locale.forLanguageTag("es-CO")
   private val longDate = DateTimeFormatter.ofPattern("d 'de' MMMM 'de' uuuu", locale)
+
+  fun share(context: Context, payment: PaymentSummary): Boolean = share(
+    context,
+    PaymentReceiptData(
+      memberName = payment.memberName,
+      amount = payment.amount,
+      paidOn = payment.paidOn,
+      paymentType = paymentTypeLabel(context, payment.paymentType),
+      paymentMethod = paymentMethodLabel(context, payment.paymentMethod),
+      validFrom = payment.validFrom ?: payment.paidOn,
+      validUntil = payment.validUntil ?: payment.paidOn,
+      reference = payment.reference,
+    ),
+  )
 
   fun share(context: Context, data: PaymentReceiptData): Boolean {
     val receiptUri = createReceiptUri(context, data)
@@ -182,4 +198,24 @@ object PaymentReceiptSharer {
 
   private fun formatDate(value: String): String =
     runCatching { LocalDate.parse(value).format(longDate) }.getOrDefault(value)
+
+  private fun paymentTypeLabel(context: Context, type: String): String = context.getString(
+    when (type) {
+      "monthly_fee" -> R.string.type_monthly_fee
+      "enrollment" -> R.string.type_enrollment
+      "class_package" -> R.string.type_class_package
+      "personal_training" -> R.string.type_personal_training
+      else -> R.string.type_other
+    },
+  )
+
+  private fun paymentMethodLabel(context: Context, method: String): String = context.getString(
+    when (method) {
+      "cash" -> R.string.method_cash
+      "card" -> R.string.method_card
+      "transfer" -> R.string.method_transfer
+      "online" -> R.string.method_online
+      else -> R.string.method_other
+    },
+  )
 }

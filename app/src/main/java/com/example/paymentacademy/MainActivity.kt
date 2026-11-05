@@ -21,6 +21,7 @@ import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.data.remote.SupabaseProvider
 import com.example.paymentacademy.data.repository.SupabasePaymentRepository
 import com.example.paymentacademy.databinding.ActivityMainBinding
+import com.example.paymentacademy.receipt.PaymentReceiptSharer
 import com.example.paymentacademy.ui.MemberPaymentSummaryAdapter
 import com.example.paymentacademy.ui.PaymentAdapter
 import com.example.paymentacademy.ui.PaymentUiState
@@ -41,7 +42,11 @@ class MainActivity : AppCompatActivity() {
     PaymentViewModelFactory(SupabasePaymentRepository(SupabaseProvider.client, applicationContext))
   }
   private val memberAdapter = MemberPaymentSummaryAdapter(::openMemberPayments)
-  private val movementAdapter = PaymentAdapter(::openPaymentForm, ::confirmDelete)
+  private val movementAdapter = PaymentAdapter(
+    ::openPaymentForm,
+    ::sharePaymentReceipt,
+    ::confirmDelete,
+  )
   private val paymentForm = registerForActivityResult(
     ActivityResultContracts.StartActivityForResult(),
   ) { result ->
@@ -207,6 +212,13 @@ class MainActivity : AppCompatActivity() {
       .setNegativeButton(R.string.cancel, null)
       .setPositiveButton(R.string.delete) { _, _ -> viewModel.deletePayment(payment.id) }
       .show()
+  }
+
+  private fun sharePaymentReceipt(payment: PaymentSummary) {
+    val shared = runCatching { PaymentReceiptSharer.share(this, payment) }.getOrDefault(false)
+    if (!shared) {
+      Snackbar.make(binding.root, R.string.receipt_share_error, Snackbar.LENGTH_LONG).show()
+    }
   }
 
   private fun showDatePicker(currentValue: String, onSelected: (LocalDate) -> Unit) {
