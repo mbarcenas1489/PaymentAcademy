@@ -21,11 +21,14 @@ import com.example.paymentacademy.data.remote.SupabaseProvider
 import com.example.paymentacademy.data.repository.SupabaseMemberRepository
 import com.example.paymentacademy.data.repository.SupabasePaymentRepository
 import com.example.paymentacademy.databinding.ActivityPaymentFormBinding
+import com.example.paymentacademy.receipt.PaymentReceiptData
+import com.example.paymentacademy.receipt.PaymentReceiptSharer
 import com.example.paymentacademy.ui.MemberSelectionAdapter
 import com.example.paymentacademy.ui.PaymentFormUiState
 import com.example.paymentacademy.ui.PaymentFormViewModel
 import com.example.paymentacademy.ui.PaymentFormViewModelFactory
 import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.time.LocalDate
@@ -45,6 +48,7 @@ class PaymentFormActivity : AppCompatActivity() {
   private var allMembers: List<Member> = emptyList()
   private var selectedMember: Member? = null
   private var membersLoaded = false
+  private var savedDialogVisible = false
   private val memberAdapter = MemberSelectionAdapter(::selectMember)
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -281,7 +285,7 @@ class PaymentFormActivity : AppCompatActivity() {
     validUntilLayout.error = state.validUntilError
     if (state.isSaved) {
       setResult(Activity.RESULT_OK)
-      finish()
+      showPaymentSavedDialog()
       return@with
     }
     state.message?.let {
@@ -289,6 +293,38 @@ class PaymentFormActivity : AppCompatActivity() {
       viewModel.messageShown()
     }
   }
+
+  private fun showPaymentSavedDialog() {
+    if (savedDialogVisible) return
+    savedDialogVisible = true
+    MaterialAlertDialogBuilder(this)
+      .setTitle(R.string.payment_saved_title)
+      .setMessage(R.string.payment_saved_message)
+      .setNegativeButton(R.string.done) { _, _ -> finish() }
+      .setPositiveButton(R.string.send_whatsapp) { _, _ ->
+        val data = currentReceiptData()
+        val shared = runCatching { PaymentReceiptSharer.share(this, data) }.getOrDefault(false)
+        if (shared) {
+          finish()
+        } else {
+          savedDialogVisible = false
+          Snackbar.make(binding.root, R.string.receipt_share_error, Snackbar.LENGTH_LONG).show()
+        }
+      }
+      .setOnCancelListener { finish() }
+      .show()
+  }
+
+  private fun currentReceiptData() = PaymentReceiptData(
+    memberName = selectedMember?.fullName.orEmpty(),
+    amount = requireNotNull(parseAmount()),
+    paidOn = binding.paidOnInput.text?.toString().orEmpty(),
+    paymentType = paymentTypeLabel(selectedPaymentTypeValue()),
+    paymentMethod = paymentMethodLabel(selectedMethodValue()),
+    validFrom = binding.validFromInput.text?.toString().orEmpty(),
+    validUntil = binding.validUntilInput.text?.toString().orEmpty(),
+    reference = binding.referenceInput.text?.toString()?.trim()?.ifBlank { null },
+  )
 
   private fun updateReview() {
     val currency = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CO"))
