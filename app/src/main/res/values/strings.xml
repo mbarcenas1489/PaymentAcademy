@@ -23,6 +23,10 @@
     <string name="tab_summary">Resumen</string>
     <string name="tab_movements">Movimientos</string>
     <string name="monthly_total">Total de %1$s</string>
+    <string name="total_in_cordobas">Total en Córdobas</string>
+    <string name="total_in_dollars">Total en Dólares</string>
+    <string name="currency_nio_label">Córdobas (C$)</string>
+    <string name="currency_usd_label">Dólares ($)</string>
     <string name="members_and_payments">Miembros y último pago</string>
     <string name="latest_payment">Último pago</string>
     <string name="no_member_payments">Sin pagos registrados</string>
@@ -82,6 +86,12 @@
     <string name="payment_status_expired">Vencido</string>
     <string name="payment_actions">Opciones del pago</string>
     <string name="edit">Editar</string>
+    <string name="register_installment">Registrar abono</string>
+    <string name="installment_short">Abonar</string>
+    <string name="history_short">Historial</string>
+    <string name="new_payment_short">Nuevo pago</string>
+    <string name="partial_debt_badge">Debe: %1$s</string>
+    <string name="partial_paid_progress">Abonado: %1$s de %2$s</string>
     <string name="send_receipt">Enviar comprobante</string>
     <string name="delete">Eliminar</string>
     <string name="delete_payment_title">Eliminar pago</string>

@@ -18,6 +18,7 @@ import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.data.remote.SupabaseProvider
 import com.example.paymentacademy.data.repository.SupabasePaymentRepository
 import com.example.paymentacademy.databinding.ActivityPaymentsBinding
+import com.example.paymentacademy.domain.CurrencyFormatter
 import com.example.paymentacademy.receipt.PaymentReceiptSharer
 import com.example.paymentacademy.ui.PaymentAdapter
 import com.example.paymentacademy.ui.PaymentsUiState
@@ -35,6 +36,7 @@ class PaymentsActivity : AppCompatActivity() {
     ::openPaymentForm,
     ::sharePaymentReceipt,
     ::confirmDelete,
+    onRegisterInstallment = ::showInstallmentDialog,
     canManagePayments = { viewModel.uiState.value.organizationRole.canManagePayments },
   )
   private val viewModel: PaymentsViewModel by viewModels {
@@ -44,8 +46,8 @@ class PaymentsActivity : AppCompatActivity() {
     ActivityResultContracts.StartActivityForResult(),
   ) { result ->
     if (result.resultCode == Activity.RESULT_OK) {
-      Snackbar.make(binding.root, R.string.payment_saved, Snackbar.LENGTH_SHORT).show()
       viewModel.refresh()
+      Snackbar.make(binding.root, R.string.payment_saved, Snackbar.LENGTH_SHORT).show()
     }
   }
 
@@ -60,17 +62,17 @@ class PaymentsActivity : AppCompatActivity() {
       insets
     }
 
-    binding.backButton.setOnClickListener { onBackPressedDispatcher.onBackPressed() }
-    binding.addPaymentButton.setOnClickListener { openPaymentForm() }
-    binding.refreshPaymentsButton.setOnClickListener { viewModel.refresh() }
+    binding.paymentsTitle.text = memberName ?: getString(R.string.manage_payments)
+    val details = intent.getStringExtra(EXTRA_MEMBER_DETAILS).orEmpty()
+    if (details.isNotBlank()) {
+      binding.memberDetails.text = details
+      binding.memberDetails.visibility = View.VISIBLE
+    }
     binding.paymentsList.layoutManager = LinearLayoutManager(this)
     binding.paymentsList.adapter = paymentsAdapter
-    if (memberId != null) {
-      binding.paymentsTitle.text = memberName ?: getString(R.string.member_payments)
-      binding.memberDetails.text = intent.getStringExtra(EXTRA_MEMBER_DETAILS).orEmpty()
-      binding.memberDetails.visibility =
-        if (binding.memberDetails.text.isBlank()) View.GONE else View.VISIBLE
-    }
+    binding.backButton.setOnClickListener { finish() }
+    binding.addPaymentButton.setOnClickListener { openPaymentForm() }
+    binding.refreshPaymentsButton.setOnClickListener { viewModel.refresh() }
 
     lifecycleScope.launch {
       repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -83,11 +85,19 @@ class PaymentsActivity : AppCompatActivity() {
     progressIndicator.visibility = if (state.isLoading) View.VISIBLE else View.GONE
     addPaymentButton.isEnabled = !state.isLoading
     refreshPaymentsButton.isEnabled = !state.isLoading
-    paymentCount.text = resources.getQuantityString(
+    val countLabel = resources.getQuantityString(
       R.plurals.managed_payment_count,
       state.payments.size,
       state.payments.size,
     )
+    val totalNio = state.payments
+      .filter { CurrencyFormatter.normalizeCurrency(it.currency) != CurrencyFormatter.CURRENCY_USD }
+      .sumOf { it.amount }
+    val totalUsd = state.payments
+      .filter { CurrencyFormatter.normalizeCurrency(it.currency) == CurrencyFormatter.CURRENCY_USD }
+      .sumOf { it.amount }
+    paymentCount.text =
+      "$countLabel · ${CurrencyFormatter.formatCurrency(totalNio, CurrencyFormatter.CURRENCY_NIO)} · ${CurrencyFormatter.formatCurrency(totalUsd, CurrencyFormatter.CURRENCY_USD)}"
     paymentsAdapter.submitList(state.payments)
     if (!state.isLoading && state.payments.isEmpty()) {
       emptyPayments.visibility = View.VISIBLE
@@ -106,6 +116,7 @@ class PaymentsActivity : AppCompatActivity() {
     payment?.let {
       intent.putExtra(PaymentFormActivity.EXTRA_PAYMENT_ID, it.id)
       intent.putExtra(PaymentFormActivity.EXTRA_AMOUNT, it.amount)
+      intent.putExtra(PaymentFormActivity.EXTRA_CURRENCY, it.currency)
       intent.putExtra(PaymentFormActivity.EXTRA_PAID_ON, it.paidOn)
       intent.putExtra(PaymentFormActivity.EXTRA_PAYMENT_TYPE, it.paymentType)
       intent.putExtra(PaymentFormActivity.EXTRA_METHOD, it.paymentMethod)
@@ -115,6 +126,45 @@ class PaymentsActivity : AppCompatActivity() {
       intent.putExtra(PaymentFormActivity.EXTRA_NOTES, it.notes)
     }
     paymentForm.launch(intent)
+  }
+
+  private fun showInstallmentDialog(payment: PaymentSummary) {
+    val currency = CurrencyFormatter.normalizeCurrency(payment.currency)
+    val input = android.widget.EditText(this).apply {
+      inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+      setText(payment.pendingAmount.toBigDecimal().stripTrailingZeros().toPlainString())
+      hint = "Monto a abonar (${CurrencyFormatter.currencySymbol(currency)})"
+    }
+    val container = android.widget.FrameLayout(this).apply {
+      val pad = (20 * resources.displayMetrics.density).toInt()
+      setPadding(pad, pad / 2, pad, 0)
+      addView(input)
+    }
+
+    MaterialAlertDialogBuilder(this)
+      .setTitle("Registrar abono")
+      .setMessage(
+        "Miembro: ${payment.memberName}\n" +
+          "Abonado hasta hoy: ${CurrencyFormatter.formatCurrency(payment.amount, currency)}\n" +
+          "Saldo pendiente: ${CurrencyFormatter.formatCurrency(payment.pendingAmount, currency)}",
+      )
+      .setView(container)
+      .setNegativeButton(R.string.cancel, null)
+      .setPositiveButton("Guardar abono") { _, _ ->
+        val amount = input.text?.toString()?.trim()?.replace(',', '.')?.toDoubleOrNull()
+        if (amount == null || amount <= 0.0 || amount > payment.pendingAmount) {
+          Snackbar.make(
+            binding.root,
+            "Ingresa un abono válido (máx. ${CurrencyFormatter.formatCurrency(payment.pendingAmount, currency)})",
+            Snackbar.LENGTH_LONG,
+          ).show()
+        } else {
+          viewModel.registerInstallment(payment, amount) { updated ->
+            sharePaymentReceipt(updated)
+          }
+        }
+      }
+      .show()
   }
 
   private fun confirmDelete(payment: PaymentSummary) {

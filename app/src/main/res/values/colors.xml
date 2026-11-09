@@ -14,4 +14,9 @@
     <color name="status_upcoming_text">#735800</color>
     <color name="status_expired_container">#FCE0DE</color>
     <color name="status_expired_text">#A1251C</color>
+    <color name="partial_badge_container">#FEF3C7</color>
+    <color name="partial_badge_text">#B45309</color>
+    <color name="partial_button_background">#F59E0B</color>
+    <color name="partial_button_text">#1F1600</color>
+    <color name="latest_payment_box">#F7F3EE</color>
 </resources>

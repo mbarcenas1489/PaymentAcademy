@@ -14,9 +14,9 @@ import android.net.Uri
 import androidx.core.content.FileProvider
 import com.example.paymentacademy.R
 import com.example.paymentacademy.data.model.PaymentSummary
+import com.example.paymentacademy.domain.CurrencyFormatter
 import java.io.File
 import java.io.FileOutputStream
-import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -25,6 +25,8 @@ import java.util.Locale
 data class PaymentReceiptData(
   val memberName: String,
   val amount: Double,
+  val pendingAmount: Double = 0.0,
+  val currency: String = "NIO",
   val paidOn: String,
   val paymentType: String,
   val paymentMethod: String,
@@ -47,6 +49,8 @@ object PaymentReceiptSharer {
     PaymentReceiptData(
       memberName = payment.memberName,
       amount = payment.amount,
+      pendingAmount = payment.pendingAmount,
+      currency = payment.currency,
       paidOn = payment.paidOn,
       paymentType = paymentTypeLabel(context, payment.paymentType),
       paymentMethod = paymentMethodLabel(context, payment.paymentMethod),
@@ -122,7 +126,7 @@ object PaymentReceiptSharer {
     )
     paint.style = Paint.Style.FILL
 
-    drawText(canvas, paint, context.getString(com.example.paymentacademy.R.string.app_name), 190f, 100f, 40f, Color.WHITE, true)
+    drawText(canvas, paint, context.getString(R.string.app_name), 190f, 100f, 40f, Color.WHITE, true)
     drawText(canvas, paint, "COMPROBANTE DE PAGO", 190f, 157f, 48f, Color.WHITE, true)
     drawText(canvas, paint, "Pago recibido correctamente", 190f, 207f, 28f, Color.rgb(255, 224, 211))
     data.receiptNumber?.takeIf { it.isNotBlank() }?.let { number ->
@@ -142,11 +146,23 @@ object PaymentReceiptSharer {
     paint.color = Color.WHITE
     canvas.drawRoundRect(RectF(56f, 304f, 1024f, 1770f), 32f, 32f, paint)
 
-    drawText(canvas, paint, "TOTAL PAGADO", 540f, 395f, 27f, Color.rgb(118, 95, 82), true, Paint.Align.CENTER)
+    val isPartial = data.pendingAmount > 0.0
+
     drawText(
       canvas,
       paint,
-      NumberFormat.getCurrencyInstance(locale).format(data.amount),
+      if (isPartial) "TOTAL ABONADO" else "TOTAL PAGADO",
+      540f,
+      395f,
+      27f,
+      Color.rgb(118, 95, 82),
+      true,
+      Paint.Align.CENTER,
+    )
+    drawText(
+      canvas,
+      paint,
+      CurrencyFormatter.formatCurrency(data.amount, data.currency),
       540f,
       480f,
       67f,
@@ -154,19 +170,45 @@ object PaymentReceiptSharer {
       true,
       Paint.Align.CENTER,
     )
-    paint.color = Color.rgb(221, 243, 228)
+    paint.color = if (isPartial) Color.rgb(254, 243, 199) else Color.rgb(221, 243, 228)
     canvas.drawRoundRect(RectF(390f, 515f, 690f, 575f), 30f, 30f, paint)
-    drawText(canvas, paint, "PAGO CONFIRMADO", 540f, 555f, 23f, Color.rgb(23, 107, 58), true, Paint.Align.CENTER)
+    drawText(
+      canvas,
+      paint,
+      if (isPartial) "ABONO PARCIAL" else "PAGO CONFIRMADO",
+      540f,
+      555f,
+      23f,
+      if (isPartial) Color.rgb(180, 83, 9) else Color.rgb(23, 107, 58),
+      true,
+      Paint.Align.CENTER,
+    )
 
     paint.color = Color.rgb(232, 220, 212)
     canvas.drawRect(105f, 625f, 975f, 627f, paint)
 
-    var y = 700f
+    var y = 690f
     y = drawRow(canvas, paint, "RECIBIDO DE", data.memberName, y)
     data.memberDocument?.takeIf { it.isNotBlank() }?.let { document ->
       y = drawRow(canvas, paint, "DOCUMENTO", document, y)
     }
     y = drawRow(canvas, paint, "CONCEPTO", data.paymentType, y)
+    if (isPartial) {
+      y = drawRow(
+        canvas,
+        paint,
+        "VALOR TOTAL DEL PERÍODO",
+        CurrencyFormatter.formatCurrency(data.amount + data.pendingAmount, data.currency),
+        y,
+      )
+      y = drawRow(
+        canvas,
+        paint,
+        "SALDO PENDIENTE",
+        CurrencyFormatter.formatCurrency(data.pendingAmount, data.currency),
+        y,
+      )
+    }
     y = drawRow(canvas, paint, "MÉTODO", data.paymentMethod, y)
     y = drawRow(canvas, paint, "FECHA DE PAGO", formatDate(data.paidOn), y)
     y = drawRow(

@@ -12,6 +12,8 @@ data class PaymentUiState(
   val members: List<MemberPaymentSummary> = emptyList(),
   val movements: List<PaymentSummary> = emptyList(),
   val monthlyTotal: Double = 0.0,
+  val monthlyTotalNIO: Double = 0.0,
+  val monthlyTotalUSD: Double = 0.0,
   val organizationRole: OrganizationRole = OrganizationRole.STAFF,
   val syncStatus: SyncStatus = SyncStatus.SYNCED,
   val pendingSyncCount: Int = 0,

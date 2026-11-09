@@ -3,9 +3,13 @@ package com.example.paymentacademy.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.paymentacademy.data.model.Member
+import com.example.paymentacademy.domain.CurrencyFormatter
 import com.example.paymentacademy.domain.MemberRepository
 import com.example.paymentacademy.domain.PaymentDraft
 import com.example.paymentacademy.domain.PaymentRepository
+import com.example.paymentacademy.domain.PaymentSetting
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,6 +21,7 @@ data class PaymentFormUiState(
   val isLoading: Boolean = true,
   val isSaving: Boolean = false,
   val members: List<Member> = emptyList(),
+  val paymentSetting: PaymentSetting = PaymentSetting(),
   val isSaved: Boolean = false,
   val savedPaymentId: String? = null,
   val memberError: String? = null,
@@ -36,14 +41,26 @@ class PaymentFormViewModel(
 
   init {
     viewModelScope.launch {
-      runCatching { memberRepository.getMembers() }
-        .onSuccess { _uiState.value = PaymentFormUiState(isLoading = false, members = it) }
-        .onFailure { error ->
-          _uiState.value = PaymentFormUiState(
-            isLoading = false,
-            message = error.message ?: "No fue posible cargar los miembros.",
-          )
+      runCatching {
+        coroutineScope {
+          val membersDeferred = async { memberRepository.getMembers() }
+          val settingDeferred = async {
+            runCatching { paymentRepository.getPaymentSetting() }.getOrDefault(PaymentSetting())
+          }
+          membersDeferred.await() to settingDeferred.await()
         }
+      }.onSuccess { (members, setting) ->
+        _uiState.value = PaymentFormUiState(
+          isLoading = false,
+          members = members,
+          paymentSetting = setting,
+        )
+      }.onFailure { error ->
+        _uiState.value = PaymentFormUiState(
+          isLoading = false,
+          message = error.message ?: "No fue posible cargar los miembros.",
+        )
+      }
     }
   }
 
@@ -51,6 +68,8 @@ class PaymentFormViewModel(
     paymentId: String?,
     memberId: String?,
     amountText: String,
+    pendingAmount: Double = 0.0,
+    currency: String = CurrencyFormatter.CURRENCY_NIO,
     paidOn: String,
     paymentType: String,
     paymentMethod: String,
@@ -95,6 +114,8 @@ class PaymentFormViewModel(
     val draft = PaymentDraft(
       memberId = requireNotNull(memberId),
       amount = requireNotNull(amount),
+      pendingAmount = pendingAmount.coerceAtLeast(0.0),
+      currency = CurrencyFormatter.normalizeCurrency(currency),
       paidOn = paidOn.trim(),
       paymentType = paymentType,
       paymentMethod = paymentMethod,

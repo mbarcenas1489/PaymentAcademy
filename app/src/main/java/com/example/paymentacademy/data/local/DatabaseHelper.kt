@@ -34,6 +34,8 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(
                 organization_id TEXT,
                 member_id TEXT,
                 amount REAL,
+                pending_amount REAL DEFAULT 0,
+                currency TEXT DEFAULT 'NIO',
                 paid_on TEXT,
                 payment_type TEXT,
                 payment_method TEXT,
@@ -47,11 +49,27 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(
             )
         """)
 
+        createAppConfigurationTable(db)
         createOrganizationIndexes(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) createOrganizationIndexes(db)
+        if (oldVersion < 3) {
+            runCatching {
+                db.execSQL("ALTER TABLE payments ADD COLUMN pending_amount REAL DEFAULT 0")
+            }
+            createAppConfigurationTable(db)
+        }
+        if (oldVersion < 4) {
+            runCatching {
+                db.execSQL("ALTER TABLE payments ADD COLUMN pending_amount REAL DEFAULT 0")
+            }
+            runCatching {
+                db.execSQL("ALTER TABLE payments ADD COLUMN currency TEXT DEFAULT 'NIO'")
+            }
+            createAppConfigurationTable(db)
+        }
     }
 
     fun clearAllData() {
@@ -59,10 +77,20 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(
         try {
             writableDatabase.delete("payments", null, null)
             writableDatabase.delete("members", null, null)
+            writableDatabase.delete("app_configuration", null, null)
             writableDatabase.setTransactionSuccessful()
         } finally {
             writableDatabase.endTransaction()
         }
+    }
+
+    private fun createAppConfigurationTable(db: SQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS app_configuration (
+                setting_name TEXT PRIMARY KEY,
+                value_json TEXT
+            )
+        """)
     }
 
     private fun createOrganizationIndexes(db: SQLiteDatabase) {
@@ -79,6 +107,6 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(
     }
 
     private companion object {
-        const val DATABASE_VERSION = 2
+        const val DATABASE_VERSION = 4
     }
 }

@@ -1,6 +1,7 @@
 package com.example.paymentacademy.ui
 
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import androidx.appcompat.widget.PopupMenu
 import androidx.core.content.ContextCompat
@@ -10,7 +11,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.paymentacademy.R
 import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.databinding.ItemPaymentBinding
-import java.text.NumberFormat
+import com.example.paymentacademy.domain.CurrencyFormatter
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -19,10 +20,10 @@ class PaymentAdapter(
   private val onEdit: (PaymentSummary) -> Unit,
   private val onShareReceipt: (PaymentSummary) -> Unit,
   private val onDelete: (PaymentSummary) -> Unit,
+  private val onRegisterInstallment: (PaymentSummary) -> Unit = {},
   private val canManagePayments: () -> Boolean = { true },
 ) : ListAdapter<PaymentSummary, PaymentAdapter.PaymentViewHolder>(DiffCallback) {
   private val locale = Locale.forLanguageTag("es-CO")
-  private val currency = NumberFormat.getCurrencyInstance(locale)
   private val shortDate = DateTimeFormatter.ofPattern("d MMM", locale)
   private val fullDate = DateTimeFormatter.ofPattern("d MMM uuuu", locale)
 
@@ -40,6 +41,7 @@ class PaymentAdapter(
   ) : RecyclerView.ViewHolder(binding.root) {
     fun bind(payment: PaymentSummary) = with(binding) {
       val context = root.context
+      val currency = CurrencyFormatter.normalizeCurrency(payment.currency)
       
       // Handle Month Header
       val currentMonth = parseDate(payment.paidOn)?.format(DateTimeFormatter.ofPattern("MMMM yyyy", locale))?.replaceFirstChar { it.titlecase() } ?: ""
@@ -52,22 +54,41 @@ class PaymentAdapter(
       }
       
       if (showHeader && currentMonth.isNotEmpty()) {
-          monthHeader.visibility = android.view.View.VISIBLE
+          monthHeader.visibility = View.VISIBLE
           monthHeader.text = currentMonth
       } else {
-          monthHeader.visibility = android.view.View.GONE
+          monthHeader.visibility = View.GONE
       }
       
       val from = parseDate(payment.validFrom ?: payment.paidOn)
       val until = parseDate(payment.validUntil ?: payment.paidOn)
 
       memberName.text = payment.memberName
-      paymentAmount.text = currency.format(payment.amount)
+      paymentAmount.text = CurrencyFormatter.formatCurrency(payment.amount, currency)
       paymentMeta.text = context.getString(
         R.string.payment_meta,
         paymentTypeLabel(payment.paymentType, context),
         paymentMethodLabel(payment.paymentMethod, context),
       )
+
+      if (payment.pendingAmount > 0.0) {
+        partialPaymentRow.visibility = View.VISIBLE
+        pendingBadgeText.text = context.getString(
+          R.string.partial_debt_badge,
+          CurrencyFormatter.formatCurrency(payment.pendingAmount, currency),
+        )
+        paymentPartialInfo.text = context.getString(
+          R.string.partial_paid_progress,
+          CurrencyFormatter.formatCurrency(payment.amount, currency),
+          CurrencyFormatter.formatCurrency(payment.amount + payment.pendingAmount, currency),
+        )
+        installmentButton.visibility = if (canManagePayments()) View.VISIBLE else View.GONE
+        installmentButton.setOnClickListener { onRegisterInstallment(payment) }
+      } else {
+        partialPaymentRow.visibility = View.GONE
+        installmentButton.visibility = View.GONE
+      }
+
       paymentPeriod.text = formatPeriod(from, until, payment)
       paymentPaidOn.text = context.getString(
         R.string.payment_paid_on,
@@ -90,10 +111,13 @@ class PaymentAdapter(
       paymentActions.setOnClickListener { anchor ->
         PopupMenu(context, anchor).apply {
           inflate(R.menu.payment_card_actions)
+          menu.findItem(R.id.action_register_installment).isVisible =
+            canManagePayments() && payment.pendingAmount > 0.0
           menu.findItem(R.id.action_edit_payment).isVisible = canManagePayments()
           menu.findItem(R.id.action_delete_payment).isVisible = canManagePayments()
           setOnMenuItemClickListener { item ->
             when (item.itemId) {
+              R.id.action_register_installment -> onRegisterInstallment(payment)
               R.id.action_edit_payment -> onEdit(payment)
               R.id.action_share_receipt -> onShareReceipt(payment)
               R.id.action_delete_payment -> onDelete(payment)

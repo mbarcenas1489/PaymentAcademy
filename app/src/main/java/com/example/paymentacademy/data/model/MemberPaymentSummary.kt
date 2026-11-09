@@ -14,6 +14,8 @@ data class MemberPaymentSummary(
   @SerialName("member_status") val memberStatus: String,
   @SerialName("last_payment_id") val lastPaymentId: String? = null,
   @SerialName("last_amount") val lastAmount: Double? = null,
+  @SerialName("last_pending_amount") val lastPendingAmount: Double? = null,
+  @SerialName("last_currency") val lastCurrency: String? = "NIO",
   @SerialName("last_paid_on") val lastPaidOn: String? = null,
   @SerialName("last_payment_type") val lastPaymentType: String? = null,
   @SerialName("last_payment_method") val lastPaymentMethod: String? = null,

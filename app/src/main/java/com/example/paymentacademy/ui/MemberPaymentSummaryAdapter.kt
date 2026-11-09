@@ -10,17 +10,19 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.paymentacademy.R
 import com.example.paymentacademy.data.model.MemberPaymentSummary
 import com.example.paymentacademy.databinding.ItemMemberPaymentSummaryBinding
-import java.text.NumberFormat
+import com.example.paymentacademy.domain.CurrencyFormatter
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 class MemberPaymentSummaryAdapter(
   private val onMemberSelected: (MemberPaymentSummary) -> Unit,
+  private val onRegisterInstallment: (MemberPaymentSummary) -> Unit = {},
+  private val onNewPayment: (MemberPaymentSummary) -> Unit = {},
+  private val canManagePayments: () -> Boolean = { true },
 ) : ListAdapter<MemberPaymentSummary, MemberPaymentSummaryAdapter.MemberViewHolder>(DiffCallback) {
   private val locale = Locale.forLanguageTag("es-CO")
-  private val currency = NumberFormat.getCurrencyInstance(locale)
-  private val fullDate = DateTimeFormatter.ofPattern("d MMM uuuu", locale)
+  private val fullDate = DateTimeFormatter.ofPattern("d 'de' MMMM 'de' uuuu", locale)
 
   override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MemberViewHolder =
     MemberViewHolder(
@@ -36,14 +38,10 @@ class MemberPaymentSummaryAdapter(
   ) : RecyclerView.ViewHolder(binding.root) {
     fun bind(member: MemberPaymentSummary) = with(binding) {
       val context = root.context
+      memberInitial.text =
+        member.fullName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
       memberName.text = member.fullName
-      memberStatus.text = context.getString(
-        when (member.memberStatus) {
-          "active" -> R.string.status_active
-          "frozen" -> R.string.status_frozen
-          else -> R.string.status_inactive
-        },
-      )
+      bindMemberStatus(member.memberStatus)
       memberDetails.text = listOfNotNull(
         member.documentNumber,
         member.phone,
@@ -52,14 +50,45 @@ class MemberPaymentSummaryAdapter(
         .ifBlank { context.getString(R.string.no_contact) }
 
       if (member.lastPaymentId == null || member.lastAmount == null) {
-        lastPaymentMain.setText(R.string.no_member_payments)
+        lastPaymentAmount.setText(R.string.no_member_payments)
+        lastPaymentAmount.textSize = 15f
+        pendingBadgeContainer.visibility = View.GONE
+        lastPaymentPartialInfo.visibility = View.GONE
+        lastPaymentMain.visibility = View.GONE
         lastPaymentPeriod.visibility = View.GONE
         paymentStatusContainer.visibility = View.GONE
+        installmentButton.visibility = View.GONE
       } else {
+        val amount = member.lastAmount
+        val pending = member.lastPendingAmount ?: 0.0
+        val currency = CurrencyFormatter.normalizeCurrency(member.lastCurrency)
+        lastPaymentAmount.textSize = 22f
+        lastPaymentAmount.text = CurrencyFormatter.formatCurrency(amount, currency)
+
+        if (pending > 0.0) {
+          pendingBadgeContainer.visibility = View.VISIBLE
+          pendingBadgeText.text = context.getString(
+            R.string.partial_debt_badge,
+            CurrencyFormatter.formatCurrency(pending, currency),
+          )
+          lastPaymentPartialInfo.visibility = View.VISIBLE
+          lastPaymentPartialInfo.text = context.getString(
+            R.string.partial_paid_progress,
+            CurrencyFormatter.formatCurrency(amount, currency),
+            CurrencyFormatter.formatCurrency(amount + pending, currency),
+          )
+          installmentButton.visibility = if (canManagePayments()) View.VISIBLE else View.GONE
+        } else {
+          pendingBadgeContainer.visibility = View.GONE
+          lastPaymentPartialInfo.visibility = View.GONE
+          installmentButton.visibility = View.GONE
+        }
+
+        lastPaymentMain.visibility = View.VISIBLE
         lastPaymentMain.text = context.getString(
-          R.string.latest_payment_main,
-          currency.format(member.lastAmount),
+          R.string.payment_meta,
           paymentTypeLabel(member.lastPaymentType, context),
+          paymentMethodLabel(member.lastPaymentMethod, context),
         )
         val paidOn = parseDate(member.lastPaidOn)
         val validUntil = parseDate(member.lastValidUntil)
@@ -74,6 +103,34 @@ class MemberPaymentSummaryAdapter(
       }
 
       memberCard.setOnClickListener { onMemberSelected(member) }
+      historyButton.setOnClickListener { onMemberSelected(member) }
+      installmentButton.setOnClickListener { onRegisterInstallment(member) }
+      newPaymentButton.setOnClickListener { onNewPayment(member) }
+    }
+
+    private fun bindMemberStatus(status: String) = with(binding) {
+      val (labelRes, containerColorRes, textColorRes) = when (status) {
+        "active" -> Triple(
+          R.string.status_active,
+          R.color.status_current_container,
+          R.color.status_current_text,
+        )
+        "frozen" -> Triple(
+          R.string.status_frozen,
+          R.color.status_upcoming_container,
+          R.color.status_upcoming_text,
+        )
+        else -> Triple(
+          R.string.status_inactive,
+          R.color.status_expired_container,
+          R.color.status_expired_text,
+        )
+      }
+      memberStatus.setText(labelRes)
+      memberStatus.setTextColor(ContextCompat.getColor(root.context, textColorRes))
+      memberStatusContainer.setCardBackgroundColor(
+        ContextCompat.getColor(root.context, containerColorRes),
+      )
     }
 
     private fun bindPaymentStatus(from: LocalDate?, until: LocalDate?) = with(binding) {
@@ -116,6 +173,17 @@ class MemberPaymentSummaryAdapter(
         "class_package" -> R.string.type_class_package
         "personal_training" -> R.string.type_personal_training
         else -> R.string.type_other
+      },
+    )
+
+  private fun paymentMethodLabel(method: String?, context: android.content.Context): String =
+    context.getString(
+      when (method) {
+        "cash" -> R.string.method_cash
+        "card" -> R.string.method_card
+        "transfer" -> R.string.method_transfer
+        "online" -> R.string.method_online
+        else -> R.string.method_other
       },
     )
 

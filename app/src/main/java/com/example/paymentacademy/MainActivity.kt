@@ -8,8 +8,8 @@ import android.view.View
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -24,6 +24,7 @@ import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.data.remote.SupabaseProvider
 import com.example.paymentacademy.data.repository.SupabasePaymentRepository
 import com.example.paymentacademy.databinding.ActivityMainBinding
+import com.example.paymentacademy.domain.CurrencyFormatter
 import com.example.paymentacademy.domain.SyncAuditReport
 import com.example.paymentacademy.receipt.PaymentReceiptSharer
 import com.example.paymentacademy.ui.MemberPaymentSummaryAdapter
@@ -36,7 +37,6 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.tabs.TabLayout
 import kotlinx.coroutines.launch
-import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -48,11 +48,17 @@ class MainActivity : AppCompatActivity() {
   private val viewModel: PaymentViewModel by viewModels {
     PaymentViewModelFactory(SupabasePaymentRepository(SupabaseProvider.client, applicationContext))
   }
-  private val memberAdapter = MemberPaymentSummaryAdapter(::openMemberPayments)
+  private val memberAdapter = MemberPaymentSummaryAdapter(
+    onMemberSelected = ::openMemberPayments,
+    onRegisterInstallment = ::showInstallmentForMember,
+    onNewPayment = ::openNewPaymentForMember,
+    canManagePayments = { viewModel.uiState.value.organizationRole.canManagePayments },
+  )
   private val movementAdapter = PaymentAdapter(
     ::openPaymentForm,
     ::sharePaymentReceipt,
     ::confirmDelete,
+    onRegisterInstallment = ::showInstallmentDialog,
     canManagePayments = { viewModel.uiState.value.organizationRole.canManagePayments },
   )
   private val paymentForm = registerForActivityResult(
@@ -177,18 +183,32 @@ class MainActivity : AppCompatActivity() {
 
     if (state.isAuthenticated) {
       val locale = Locale.forLanguageTag("es-CO")
-      val currency = NumberFormat.getCurrencyInstance(locale)
       val month = LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM 'de' uuuu", locale))
         .replaceFirstChar { it.titlecase(locale) }
       monthTotalLabel.text = getString(R.string.monthly_total, month)
-      totalValue.text = currency.format(state.monthlyTotal)
+      totalValue.text = CurrencyFormatter.formatCurrency(
+        state.monthlyTotalNIO,
+        CurrencyFormatter.CURRENCY_NIO,
+      )
+      totalValueUsd.text = CurrencyFormatter.formatCurrency(
+        state.monthlyTotalUSD,
+        CurrencyFormatter.CURRENCY_USD,
+      )
       movementFromInput.setText(state.fromDate.toString())
       movementToInput.setText(state.toDate.toString())
-      movementCount.text = resources.getQuantityString(
+      val countLabel = resources.getQuantityString(
         R.plurals.movement_count,
         state.movements.size,
         state.movements.size,
       )
+      val movementsNio = state.movements
+        .filter { CurrencyFormatter.normalizeCurrency(it.currency) != CurrencyFormatter.CURRENCY_USD }
+        .sumOf { it.amount }
+      val movementsUsd = state.movements
+        .filter { CurrencyFormatter.normalizeCurrency(it.currency) == CurrencyFormatter.CURRENCY_USD }
+        .sumOf { it.amount }
+      movementCount.text =
+        "$countLabel · ${CurrencyFormatter.formatCurrency(movementsNio, CurrencyFormatter.CURRENCY_NIO)} · ${CurrencyFormatter.formatCurrency(movementsUsd, CurrencyFormatter.CURRENCY_USD)}"
       memberAdapter.submitList(state.members)
       movementAdapter.submitList(state.movements)
       renderSyncStatus(state.syncStatus, state.pendingSyncCount)
@@ -322,12 +342,45 @@ class MainActivity : AppCompatActivity() {
     )
   }
 
+  private fun openNewPaymentForMember(member: MemberPaymentSummary) {
+    paymentForm.launch(
+      Intent(this, PaymentFormActivity::class.java)
+        .putExtra(PaymentFormActivity.EXTRA_MEMBER_ID, member.memberId),
+    )
+  }
+
+  private fun showInstallmentForMember(member: MemberPaymentSummary) {
+    val paymentId = member.lastPaymentId ?: return
+    val amount = member.lastAmount ?: return
+    val pending = member.lastPendingAmount ?: 0.0
+    if (pending <= 0.0) return
+    val existingMovement = viewModel.uiState.value.movements.firstOrNull { it.id == paymentId }
+    val paymentSummary = existingMovement ?: PaymentSummary(
+      id = paymentId,
+      organizationId = member.organizationId,
+      memberId = member.memberId,
+      memberName = member.fullName,
+      memberDocument = member.documentNumber,
+      amount = amount,
+      pendingAmount = pending,
+      currency = CurrencyFormatter.normalizeCurrency(member.lastCurrency),
+      paidOn = member.lastPaidOn ?: LocalDate.now().toString(),
+      paymentType = member.lastPaymentType ?: "monthly_fee",
+      paymentMethod = member.lastPaymentMethod ?: "cash",
+      validFrom = member.lastValidFrom,
+      validUntil = member.lastValidUntil,
+      createdAt = member.lastPaidOn ?: LocalDate.now().toString(),
+    )
+    showInstallmentDialog(paymentSummary)
+  }
+
   private fun openPaymentForm(payment: PaymentSummary) {
     paymentForm.launch(
       Intent(this, PaymentFormActivity::class.java).apply {
         putExtra(PaymentFormActivity.EXTRA_PAYMENT_ID, payment.id)
         putExtra(PaymentFormActivity.EXTRA_MEMBER_ID, payment.memberId)
         putExtra(PaymentFormActivity.EXTRA_AMOUNT, payment.amount)
+        putExtra(PaymentFormActivity.EXTRA_CURRENCY, payment.currency)
         putExtra(PaymentFormActivity.EXTRA_PAID_ON, payment.paidOn)
         putExtra(PaymentFormActivity.EXTRA_PAYMENT_TYPE, payment.paymentType)
         putExtra(PaymentFormActivity.EXTRA_METHOD, payment.paymentMethod)
@@ -337,6 +390,45 @@ class MainActivity : AppCompatActivity() {
         putExtra(PaymentFormActivity.EXTRA_NOTES, payment.notes)
       },
     )
+  }
+
+  private fun showInstallmentDialog(payment: PaymentSummary) {
+    val currency = CurrencyFormatter.normalizeCurrency(payment.currency)
+    val input = android.widget.EditText(this).apply {
+      inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+      setText(payment.pendingAmount.toBigDecimal().stripTrailingZeros().toPlainString())
+      hint = "Monto a abonar (${CurrencyFormatter.currencySymbol(currency)})"
+    }
+    val container = android.widget.FrameLayout(this).apply {
+      val pad = (20 * resources.displayMetrics.density).toInt()
+      setPadding(pad, pad / 2, pad, 0)
+      addView(input)
+    }
+
+    MaterialAlertDialogBuilder(this)
+      .setTitle("Registrar abono")
+      .setMessage(
+        "Miembro: ${payment.memberName}\n" +
+          "Abonado hasta hoy: ${CurrencyFormatter.formatCurrency(payment.amount, currency)}\n" +
+          "Saldo pendiente: ${CurrencyFormatter.formatCurrency(payment.pendingAmount, currency)}",
+      )
+      .setView(container)
+      .setNegativeButton(R.string.cancel, null)
+      .setPositiveButton("Guardar abono") { _, _ ->
+        val amount = input.text?.toString()?.trim()?.replace(',', '.')?.toDoubleOrNull()
+        if (amount == null || amount <= 0.0 || amount > payment.pendingAmount) {
+          Snackbar.make(
+            binding.root,
+            "Ingresa un abono válido (máx. ${CurrencyFormatter.formatCurrency(payment.pendingAmount, currency)})",
+            Snackbar.LENGTH_LONG,
+          ).show()
+        } else {
+          viewModel.registerInstallment(payment, amount) { updated ->
+            sharePaymentReceipt(updated)
+          }
+        }
+      }
+      .show()
   }
 
   private fun confirmDelete(payment: PaymentSummary) {

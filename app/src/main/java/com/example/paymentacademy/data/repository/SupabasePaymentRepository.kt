@@ -8,8 +8,11 @@ import com.example.paymentacademy.data.local.DatabaseHelper
 import com.example.paymentacademy.data.model.MemberPaymentSummary
 import com.example.paymentacademy.data.model.Member
 import com.example.paymentacademy.data.model.PaymentSummary
+import com.example.paymentacademy.domain.CurrencyFormatter
+import com.example.paymentacademy.domain.InstallmentDraft
 import com.example.paymentacademy.domain.PaymentDraft
 import com.example.paymentacademy.domain.PaymentRepository
+import com.example.paymentacademy.domain.PaymentSetting
 import com.example.paymentacademy.domain.PendingSyncSummary
 import com.example.paymentacademy.domain.OrganizationRole
 import com.example.paymentacademy.domain.SyncAuditReport
@@ -21,6 +24,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import org.json.JSONObject
+import org.json.JSONTokener
 import java.time.LocalDate
 import java.util.UUID
 
@@ -30,6 +37,8 @@ private data class PaymentEntity(
   @SerialName("organization_id") val organizationId: String,
   @SerialName("member_id") val memberId: String,
   val amount: Double,
+  @SerialName("pending_amount") val pendingAmount: Double = 0.0,
+  val currency: String = "NIO",
   @SerialName("paid_on") val paidOn: String,
   @SerialName("payment_type") val paymentType: String,
   @SerialName("payment_method") val paymentMethod: String,
@@ -37,7 +46,7 @@ private data class PaymentEntity(
   @SerialName("valid_until") val validUntil: String,
   val reference: String? = null,
   val notes: String? = null,
-  @SerialName("created_at") val createdAt: String
+  @SerialName("created_at") val createdAt: String,
 )
 
 @Serializable
@@ -46,6 +55,8 @@ private data class UpsertPaymentRecord(
   @SerialName("organization_id") val organizationId: String,
   @SerialName("member_id") val memberId: String,
   val amount: Double,
+  @SerialName("pending_amount") val pendingAmount: Double = 0.0,
+  val currency: String = "NIO",
   @SerialName("paid_on") val paidOn: String,
   @SerialName("payment_type") val paymentType: String,
   @SerialName("payment_method") val paymentMethod: String,
@@ -53,6 +64,16 @@ private data class UpsertPaymentRecord(
   @SerialName("valid_until") val validUntil: String,
   val reference: String? = null,
   val notes: String? = null,
+)
+
+@Serializable
+private data class AppConfigurationEntity(
+  @SerialName("Id") val id: String? = null,
+  @SerialName("SettingName") val settingName: String? = null,
+  @SerialName("settingname") val settingNameLower: String? = null,
+  @SerialName("setting_name") val settingNameSnake: String? = null,
+  val value: JsonElement? = null,
+  @SerialName("Value") val valueUpper: JsonElement? = null,
 )
 
 class SupabasePaymentRepository(
@@ -181,6 +202,7 @@ class SupabasePaymentRepository(
     
     val list = mutableListOf<PaymentSummary>()
     val db = dbHelper.readableDatabase
+    val setting = ensureLocalPaymentSetting()
     var selection = "p.organization_id = ? AND p.is_deleted = 0"
     val args = mutableListOf(organizationId)
 
@@ -209,6 +231,14 @@ class SupabasePaymentRepository(
 
     db.rawQuery(query, args.toTypedArray()).use { cursor ->
       while (cursor.moveToNext()) {
+        val amount = cursor.getDouble(cursor.getColumnIndexOrThrow("amount"))
+        val rawPending = cursor.getColumnIndex("pending_amount")
+          .takeIf { it >= 0 && !cursor.isNull(it) }
+          ?.let(cursor::getDouble) ?: 0.0
+        val currency = cursor.getColumnIndex("currency")
+          .takeIf { it >= 0 && !cursor.isNull(it) }
+          ?.let(cursor::getString)
+          .let(CurrencyFormatter::normalizeCurrency)
         list.add(
           PaymentSummary(
             id = cursor.getString(cursor.getColumnIndexOrThrow("id")),
@@ -216,7 +246,9 @@ class SupabasePaymentRepository(
             memberId = cursor.getString(cursor.getColumnIndexOrThrow("member_id")),
             memberName = cursor.getString(cursor.getColumnIndexOrThrow("member_name")) ?: "Desconocido",
             memberDocument = cursor.getString(cursor.getColumnIndexOrThrow("member_document")),
-            amount = cursor.getDouble(cursor.getColumnIndexOrThrow("amount")),
+            amount = amount,
+            pendingAmount = resolveEffectivePendingAmount(amount, rawPending, currency, setting),
+            currency = currency,
             paidOn = cursor.getString(cursor.getColumnIndexOrThrow("paid_on")),
             paymentType = cursor.getString(cursor.getColumnIndexOrThrow("payment_type")),
             paymentMethod = cursor.getString(cursor.getColumnIndexOrThrow("payment_method")),
@@ -237,10 +269,12 @@ class SupabasePaymentRepository(
     val organizationId = organizationScope.activeOrganizationId()
     com.example.paymentacademy.worker.SyncWorker.schedule(context)
 
+    val setting = ensureLocalPaymentSetting()
     val list = mutableListOf<MemberPaymentSummary>()
     val query = """
         SELECT m.id as member_id, m.organization_id, m.full_name, m.document_number, m.email, m.phone, m.status as member_status,
-               p.id as last_payment_id, p.amount as last_amount, p.paid_on as last_paid_on, p.payment_type as last_payment_type,
+               p.id as last_payment_id, p.amount as last_amount, p.pending_amount as last_pending_amount, p.currency as last_currency,
+               p.paid_on as last_paid_on, p.payment_type as last_payment_type,
                p.payment_method as last_payment_method, p.valid_from as last_valid_from, p.valid_until as last_valid_until
         FROM members m
         LEFT JOIN payments p ON p.id = (
@@ -254,6 +288,28 @@ class SupabasePaymentRepository(
     
     dbHelper.readableDatabase.rawQuery(query, arrayOf(organizationId)).use { cursor ->
       while (cursor.moveToNext()) {
+        val pendingIdx = cursor.getColumnIndex("last_pending_amount")
+        val currencyIdx = cursor.getColumnIndex("last_currency")
+        val lastAmount = if (!cursor.isNull(cursor.getColumnIndexOrThrow("last_amount"))) {
+          cursor.getDouble(cursor.getColumnIndexOrThrow("last_amount"))
+        } else {
+          null
+        }
+        val rawPending = if (pendingIdx >= 0 && !cursor.isNull(pendingIdx)) {
+          cursor.getDouble(pendingIdx)
+        } else {
+          0.0
+        }
+        val lastCurrency = if (currencyIdx >= 0 && !cursor.isNull(currencyIdx)) {
+          CurrencyFormatter.normalizeCurrency(cursor.getString(currencyIdx))
+        } else {
+          CurrencyFormatter.CURRENCY_NIO
+        }
+        val effectivePending = if (lastAmount != null) {
+          resolveEffectivePendingAmount(lastAmount, rawPending, lastCurrency, setting)
+        } else {
+          null
+        }
         list.add(
           MemberPaymentSummary(
             memberId = cursor.getString(cursor.getColumnIndexOrThrow("member_id")),
@@ -264,7 +320,9 @@ class SupabasePaymentRepository(
             phone = cursor.getString(cursor.getColumnIndexOrThrow("phone")),
             memberStatus = cursor.getString(cursor.getColumnIndexOrThrow("member_status")),
             lastPaymentId = cursor.getString(cursor.getColumnIndexOrThrow("last_payment_id")),
-            lastAmount = if (!cursor.isNull(cursor.getColumnIndexOrThrow("last_amount"))) cursor.getDouble(cursor.getColumnIndexOrThrow("last_amount")) else null,
+            lastAmount = lastAmount,
+            lastPendingAmount = effectivePending,
+            lastCurrency = lastCurrency,
             lastPaidOn = cursor.getString(cursor.getColumnIndexOrThrow("last_paid_on")),
             lastPaymentType = cursor.getString(cursor.getColumnIndexOrThrow("last_payment_type")),
             lastPaymentMethod = cursor.getString(cursor.getColumnIndexOrThrow("last_payment_method")),
@@ -277,25 +335,109 @@ class SupabasePaymentRepository(
     list
   }
 
+  override suspend fun getPaymentSetting(): PaymentSetting = withContext(Dispatchers.IO) {
+    runCatching { syncDownAppConfiguration() }
+    readLocalPaymentSetting() ?: PaymentSetting()
+  }
+
+  private suspend fun ensureLocalPaymentSetting(): PaymentSetting {
+    runCatching { syncDownAppConfiguration() }
+    return readLocalPaymentSetting() ?: PaymentSetting()
+  }
+
+  private fun readLocalPaymentSetting(): PaymentSetting? {
+    val db = dbHelper.readableDatabase
+    db.query(
+      "app_configuration",
+      arrayOf("value_json"),
+      "LOWER(setting_name) IN (?, ?)",
+      arrayOf("playmentsetting", "paymentsetting"),
+      null,
+      null,
+      null,
+    ).use { cursor ->
+      if (cursor.moveToFirst()) {
+        val raw = cursor.getString(0)
+        if (!raw.isNullOrBlank()) {
+          return parsePaymentSettingJson(raw)
+        }
+      }
+    }
+    return null
+  }
+
+  private fun resolveEffectivePendingAmount(
+    amount: Double,
+    rawPending: Double,
+    currency: String,
+    setting: PaymentSetting,
+  ): Double {
+    if (rawPending <= 0.0) return 0.0
+    val configuredTotal = setting.monthlyTariffFor(currency)
+    if (amount >= configuredTotal) return 0.0
+    return (configuredTotal - amount).coerceAtLeast(0.0)
+  }
+
+  private fun parsePaymentSettingJson(rawJson: String): PaymentSetting = runCatching {
+    val normalized = rawJson.trim().let {
+      if (it.startsWith("\"") && it.endsWith("\"")) {
+        JSONTokener(it).nextValue().toString()
+      } else {
+        it
+      }
+    }
+    val obj = JSONObject(normalized)
+    val monthDollar = obj.optDouble(
+      "AmountMonthDollar",
+      obj.optDouble(
+        "amountMonthDollar",
+        obj.optDouble("AmountMonth", obj.optDouble("amountMonth", 20.0)),
+      ),
+    )
+    val monthCordoba = obj.optDouble(
+      "AmountMonthCordoba",
+      obj.optDouble("amountMonthCordoba", 750.0),
+    )
+    val biweek = obj.optDouble("AmountBiweek", obj.optDouble("amountBiweek", 10.0))
+    val day = obj.optDouble("AmountDay", obj.optDouble("amountDay", 3.0))
+    PaymentSetting(
+      amountMonthDollar = if (monthDollar > 0) monthDollar else 20.0,
+      amountMonthCordoba = if (monthCordoba > 0) monthCordoba else 750.0,
+      amountBiweek = if (biweek > 0) biweek else 10.0,
+      amountDay = if (day > 0) day else 3.0,
+    )
+  }.getOrDefault(PaymentSetting())
+
   override suspend fun createPayment(payment: PaymentDraft): String = withContext(Dispatchers.IO) {
     val orgId = organizationScope.activeOrganizationId()
     ensureValidityAvailableLocal(payment, organizationId = orgId)
     
     val newId = UUID.randomUUID().toString()
     val today = LocalDate.now().toString()
+    val pendingVal = payment.pendingAmount.coerceAtLeast(0.0)
+    val normalizedCurrency = CurrencyFormatter.normalizeCurrency(payment.currency)
+    val initialNote = if (pendingVal > 0.0) {
+      val auditLine =
+        "[Abono inicial el ${payment.paidOn}: ${CurrencyFormatter.formatCurrency(payment.amount, normalizedCurrency)} | Saldo pendiente: ${CurrencyFormatter.formatCurrency(pendingVal, normalizedCurrency)}]"
+      if (!payment.notes.isNullOrBlank()) "${payment.notes.trim()}\n$auditLine" else auditLine
+    } else {
+      payment.notes
+    }
 
     val values = ContentValues().apply {
       put("id", newId)
       put("organization_id", orgId)
       put("member_id", payment.memberId)
       put("amount", payment.amount)
+      put("pending_amount", pendingVal)
+      put("currency", normalizedCurrency)
       put("paid_on", payment.paidOn)
       put("payment_type", payment.paymentType)
       put("payment_method", payment.paymentMethod)
       put("valid_from", payment.validFrom)
       put("valid_until", payment.validUntil)
       put("reference", payment.reference)
-      put("notes", payment.notes)
+      put("notes", initialNote)
       put("created_at", today)
       put("sync_pending", 1)
       put("is_deleted", 0)
@@ -312,10 +454,13 @@ class SupabasePaymentRepository(
     }
     val organizationId = organizationScope.activeOrganizationId()
     ensureValidityAvailableLocal(payment, paymentId, organizationId)
+    val normalizedCurrency = CurrencyFormatter.normalizeCurrency(payment.currency)
     
     val values = ContentValues().apply {
       put("member_id", payment.memberId)
       put("amount", payment.amount)
+      put("pending_amount", payment.pendingAmount.coerceAtLeast(0.0))
+      put("currency", normalizedCurrency)
       put("paid_on", payment.paidOn)
       put("payment_type", payment.paymentType)
       put("payment_method", payment.paymentMethod)
@@ -334,6 +479,84 @@ class SupabasePaymentRepository(
     if (rows == 0) error("No tienes permiso para editar este pago o no existe localmente.")
 
     com.example.paymentacademy.worker.SyncWorker.schedule(context)
+  }
+
+  override suspend fun registerInstallment(
+    payment: PaymentSummary,
+    installment: InstallmentDraft,
+  ): PaymentSummary = withContext(Dispatchers.IO) {
+    check(getCurrentOrganizationRole().canManagePayments) {
+      "Tu rol no permite registrar abonos."
+    }
+    val organizationId = organizationScope.activeOrganizationId()
+    val currentPending = payment.pendingAmount
+    val instAmount = installment.installmentAmount
+    val normalizedCurrency = CurrencyFormatter.normalizeCurrency(payment.currency)
+    check(instAmount > 0.0) { "El monto del abono debe ser mayor a cero." }
+    check(instAmount <= currentPending) {
+      "El abono no puede superar el saldo pendiente (${CurrencyFormatter.formatCurrency(currentPending, normalizedCurrency)})."
+    }
+
+    val newPaidAmount = payment.amount + instAmount
+    val newPendingAmount = (currentPending - instAmount).coerceAtLeast(0.0)
+    var currentNotes = payment.notes
+    var currentReference = payment.reference
+    if (currentNotes == null || currentReference == null) {
+      dbHelper.readableDatabase.query(
+        "payments",
+        arrayOf("notes", "reference"),
+        "id = ? AND organization_id = ?",
+        arrayOf(payment.id, organizationId),
+        null,
+        null,
+        null,
+      ).use { cursor ->
+        if (cursor.moveToFirst()) {
+          if (currentNotes == null) currentNotes = cursor.getString(0)
+          if (currentReference == null) currentReference = cursor.getString(1)
+        }
+      }
+    }
+    val auditLine =
+      "[Abono el ${installment.paidOn}: +${CurrencyFormatter.formatCurrency(instAmount, normalizedCurrency)} (${installment.paymentMethod}) | Saldo restante: ${CurrencyFormatter.formatCurrency(newPendingAmount, normalizedCurrency)}]" +
+        (if (!installment.notes.isNullOrBlank()) " - ${installment.notes.trim()}" else "")
+    val updatedNotes = if (!currentNotes.isNullOrBlank()) {
+      "${currentNotes.trim()}\n$auditLine"
+    } else {
+      auditLine
+    }
+    val updatedReference = installment.reference?.trim()?.ifBlank { null } ?: currentReference
+
+    val values = ContentValues().apply {
+      put("amount", newPaidAmount)
+      put("pending_amount", newPendingAmount)
+      put("currency", normalizedCurrency)
+      put("paid_on", installment.paidOn)
+      put("payment_method", installment.paymentMethod)
+      put("reference", updatedReference)
+      put("notes", updatedNotes)
+      put("sync_pending", 1)
+    }
+
+    val rows = dbHelper.writableDatabase.update(
+      "payments",
+      values,
+      "id = ? AND organization_id = ?",
+      arrayOf(payment.id, organizationId),
+    )
+    if (rows == 0) error("No fue posible registrar el abono localmente.")
+
+    com.example.paymentacademy.worker.SyncWorker.schedule(context)
+    payment.copy(
+      amount = newPaidAmount,
+      pendingAmount = newPendingAmount,
+      currency = normalizedCurrency,
+      paidOn = installment.paidOn,
+      paymentMethod = installment.paymentMethod,
+      reference = updatedReference,
+      notes = updatedNotes,
+      isSyncPending = true,
+    )
   }
 
   override suspend fun deletePayment(paymentId: String) = withContext(Dispatchers.IO) {
@@ -360,6 +583,33 @@ class SupabasePaymentRepository(
     val organizationId = organizationScope.activeOrganizationId()
     syncUpPayments(organizationId)
     syncDownPayments(organizationId)
+    runCatching { syncDownAppConfiguration() }
+  }
+
+  private suspend fun syncDownAppConfiguration() {
+    val rows = runCatching {
+      client.from("AppConfiguration").select().decodeList<AppConfigurationEntity>()
+    }.getOrElse {
+      runCatching {
+        client.from("appconfiguration").select().decodeList<AppConfigurationEntity>()
+      }.getOrDefault(emptyList())
+    }
+    if (rows.isEmpty()) return
+    val db = dbHelper.writableDatabase
+    for (row in rows) {
+      val name = row.settingName ?: row.settingNameLower ?: row.settingNameSnake ?: continue
+      val rawValue = row.value ?: row.valueUpper ?: continue
+      val jsonStr = if (rawValue is JsonPrimitive && rawValue.isString) {
+        rawValue.content
+      } else {
+        rawValue.toString()
+      }
+      val values = ContentValues().apply {
+        put("setting_name", name)
+        put("value_json", jsonStr)
+      }
+      db.insertWithOnConflict("app_configuration", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+    }
   }
 
   private suspend fun syncDownPayments(organizationId: String) {
@@ -375,6 +625,8 @@ class SupabasePaymentRepository(
           put("organization_id", payment.organizationId)
           put("member_id", payment.memberId)
           put("amount", payment.amount)
+          put("pending_amount", payment.pendingAmount)
+          put("currency", CurrencyFormatter.normalizeCurrency(payment.currency))
           put("paid_on", payment.paidOn)
           put("payment_type", payment.paymentType)
           put("payment_method", payment.paymentMethod)
@@ -412,6 +664,8 @@ class SupabasePaymentRepository(
     
     cursor.use {
       while (it.moveToNext()) {
+        val pendingCol = it.getColumnIndex("pending_amount")
+        val currencyCol = it.getColumnIndex("currency")
         upsertIds.add(it.getString(it.getColumnIndexOrThrow("id")))
         upserts.add(
           UpsertPaymentRecord(
@@ -419,6 +673,12 @@ class SupabasePaymentRepository(
             organizationId = it.getString(it.getColumnIndexOrThrow("organization_id")),
             memberId = it.getString(it.getColumnIndexOrThrow("member_id")),
             amount = it.getDouble(it.getColumnIndexOrThrow("amount")),
+            pendingAmount = if (pendingCol >= 0 && !it.isNull(pendingCol)) it.getDouble(pendingCol) else 0.0,
+            currency = if (currencyCol >= 0 && !it.isNull(currencyCol)) {
+              CurrencyFormatter.normalizeCurrency(it.getString(currencyCol))
+            } else {
+              CurrencyFormatter.CURRENCY_NIO
+            },
             paidOn = it.getString(it.getColumnIndexOrThrow("paid_on")),
             paymentType = it.getString(it.getColumnIndexOrThrow("payment_type")),
             paymentMethod = it.getString(it.getColumnIndexOrThrow("payment_method")),
@@ -571,7 +831,9 @@ class SupabasePaymentRepository(
       null,
       null,
     ).use { cursor ->
-      while (cursor.moveToNext()) ids += cursor.getString(0)
+      while (cursor.moveToNext()) {
+        ids += cursor.getString(0)
+      }
     }
     return ids
   }

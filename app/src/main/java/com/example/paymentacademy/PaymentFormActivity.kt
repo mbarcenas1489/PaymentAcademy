@@ -21,18 +21,18 @@ import com.example.paymentacademy.data.remote.SupabaseProvider
 import com.example.paymentacademy.data.repository.SupabaseMemberRepository
 import com.example.paymentacademy.data.repository.SupabasePaymentRepository
 import com.example.paymentacademy.databinding.ActivityPaymentFormBinding
+import com.example.paymentacademy.domain.CurrencyFormatter
+import com.example.paymentacademy.domain.PaymentSetting
 import com.example.paymentacademy.receipt.PaymentReceiptData
 import com.example.paymentacademy.receipt.PaymentReceiptSharer
 import com.example.paymentacademy.ui.MemberSelectionAdapter
 import com.example.paymentacademy.ui.PaymentFormUiState
 import com.example.paymentacademy.ui.PaymentFormViewModel
 import com.example.paymentacademy.ui.PaymentFormViewModelFactory
-import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.launch
-import java.text.NumberFormat
 import java.time.LocalDate
-import java.util.Locale
 
 class PaymentFormActivity : AppCompatActivity() {
   private lateinit var binding: ActivityPaymentFormBinding
@@ -50,6 +50,9 @@ class PaymentFormActivity : AppCompatActivity() {
   private var membersLoaded = false
   private var savedDialogVisible = false
   private var savedPaymentId: String? = null
+  private var paymentSetting: PaymentSetting = PaymentSetting()
+  private var selectedCurrency: String = CurrencyFormatter.CURRENCY_NIO
+  private var defaultAmountApplied = false
   private val memberAdapter = MemberSelectionAdapter(::selectMember)
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,10 +72,15 @@ class PaymentFormActivity : AppCompatActivity() {
     binding.membersList.layoutManager = LinearLayoutManager(this)
     binding.membersList.adapter = memberAdapter
     populateExistingPayment()
+    configureCurrencySelector()
     configureDropdowns()
     configureDatePickers()
     configureNavigation()
     binding.memberSearchInput.doAfterTextChanged { filterMembers(it?.toString().orEmpty()) }
+    binding.amountInput.doAfterTextChanged { updatePartialPaymentBanner() }
+    binding.monthlyTariffLabel.setOnClickListener {
+      binding.amountInput.setText(plainAmount(expectedMonthlyAmount()))
+    }
     binding.cancelButton.setOnClickListener { finish() }
 
     lifecycleScope.launch {
@@ -83,6 +91,47 @@ class PaymentFormActivity : AppCompatActivity() {
     binding.stepProgress.max = visibleStepCount()
     showStep(firstStep())
   }
+
+  private fun configureCurrencySelector() = with(binding) {
+    val initialButtonId = if (selectedCurrency == CurrencyFormatter.CURRENCY_USD) {
+      R.id.currency_usd_button
+    } else {
+      R.id.currency_nio_button
+    }
+    currencyToggleGroup.check(initialButtonId)
+    applyCurrencyUi()
+
+    currencyToggleGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
+      if (!isChecked) return@addOnButtonCheckedListener
+      val previousCurrency = selectedCurrency
+      val newCurrency = if (checkedId == R.id.currency_usd_button) {
+        CurrencyFormatter.CURRENCY_USD
+      } else {
+        CurrencyFormatter.CURRENCY_NIO
+      }
+      if (previousCurrency == newCurrency) return@addOnButtonCheckedListener
+      val currentVal = parseAmount()
+      val previousDefault = paymentSetting.monthlyTariffFor(previousCurrency)
+      selectedCurrency = newCurrency
+      applyCurrencyUi()
+      if (currentVal == null || currentVal == previousDefault) {
+        amountInput.setText(plainAmount(expectedMonthlyAmount()))
+      }
+      updatePartialPaymentBanner()
+    }
+  }
+
+  private fun applyCurrencyUi() = with(binding) {
+    amountLayout.prefixText = "${CurrencyFormatter.currencySymbol(selectedCurrency)} "
+    val expected = expectedMonthlyAmount()
+    monthlyTariffLabel.text =
+      "Tarifa mensual configurada: ${CurrencyFormatter.formatCurrency(expected, selectedCurrency)}"
+  }
+
+  private fun expectedMonthlyAmount(): Double = paymentSetting.monthlyTariffFor(selectedCurrency)
+
+  private fun plainAmount(value: Double): String =
+    value.toBigDecimal().stripTrailingZeros().toPlainString()
 
   private fun configureNavigation() {
     binding.previousButton.setOnClickListener {
@@ -159,6 +208,8 @@ class PaymentFormActivity : AppCompatActivity() {
       paymentId = paymentId,
       memberId = selectedMember?.id,
       amountText = binding.amountInput.text?.toString().orEmpty(),
+      pendingAmount = computePendingAmount(),
+      currency = selectedCurrency,
       paidOn = binding.paidOnInput.text?.toString().orEmpty(),
       paymentType = selectedPaymentTypeValue(),
       paymentMethod = selectedMethodValue(),
@@ -197,8 +248,9 @@ class PaymentFormActivity : AppCompatActivity() {
   }
 
   private fun populateExistingPayment() = with(binding) {
+    selectedCurrency = CurrencyFormatter.normalizeCurrency(intent.getStringExtra(EXTRA_CURRENCY))
     val amount = intent.getDoubleExtra(EXTRA_AMOUNT, Double.NaN)
-    if (!amount.isNaN()) amountInput.setText(amount.toBigDecimal().stripTrailingZeros().toPlainString())
+    if (!amount.isNaN()) amountInput.setText(plainAmount(amount))
     paidOnInput.setText(intent.getStringExtra(EXTRA_PAID_ON) ?: LocalDate.now().toString())
     val defaultStart = intent.getStringExtra(EXTRA_VALID_FROM) ?: LocalDate.now().toString()
     validFromInput.setText(defaultStart)
@@ -264,6 +316,13 @@ class PaymentFormActivity : AppCompatActivity() {
   private fun render(state: PaymentFormUiState) = with(binding) {
     progressIndicator.visibility = if (state.isLoading || state.isSaving) View.VISIBLE else View.GONE
     membersLoaded = !state.isLoading
+    paymentSetting = state.paymentSetting
+    applyCurrencyUi()
+    if (!state.isLoading && !defaultAmountApplied && paymentId == null && amountInput.text.isNullOrBlank()) {
+      defaultAmountApplied = true
+      amountInput.setText(plainAmount(expectedMonthlyAmount()))
+    }
+    updatePartialPaymentBanner()
     if (state.members != allMembers) {
       allMembers = state.members
       if (selectedMember == null && lockedMemberId != null) {
@@ -320,6 +379,8 @@ class PaymentFormActivity : AppCompatActivity() {
   private fun currentReceiptData() = PaymentReceiptData(
     memberName = selectedMember?.fullName.orEmpty(),
     amount = requireNotNull(parseAmount()),
+    pendingAmount = computePendingAmount(),
+    currency = selectedCurrency,
     paidOn = binding.paidOnInput.text?.toString().orEmpty(),
     paymentType = paymentTypeLabel(selectedPaymentTypeValue()),
     paymentMethod = paymentMethodLabel(selectedMethodValue()),
@@ -331,16 +392,57 @@ class PaymentFormActivity : AppCompatActivity() {
   )
 
   private fun updateReview() {
-    val currency = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CO"))
-    val amount = parseAmount()?.let(currency::format) ?: binding.amountInput.text.toString()
+    val amountVal = parseAmount()
+    val pendingVal = computePendingAmount()
+    val expected = expectedMonthlyAmount()
+    val amountStr = amountVal?.let { CurrencyFormatter.formatCurrency(it, selectedCurrency) }
+      ?: binding.amountInput.text.toString()
+    val summaryAmountLine = if (pendingVal > 0.0) {
+      "$amountStr (Abono parcial · Saldo pendiente: ${CurrencyFormatter.formatCurrency(pendingVal, selectedCurrency)} de ${CurrencyFormatter.formatCurrency(expected, selectedCurrency)})"
+    } else {
+      amountStr
+    }
     binding.reviewSummary.text = getString(
       R.string.payment_review,
       selectedMember?.fullName.orEmpty(),
-      amount,
+      summaryAmountLine,
       paymentTypeLabel(selectedPaymentTypeValue()),
       binding.validFromInput.text?.toString().orEmpty(),
       binding.validUntilInput.text?.toString().orEmpty(),
     )
+  }
+
+  private fun computePendingAmount(): Double {
+    val amount = parseAmount() ?: return 0.0
+    val expected = expectedMonthlyAmount()
+    return if (amount > 0.0 && amount < expected) {
+      (expected - amount).coerceAtLeast(0.0)
+    } else {
+      0.0
+    }
+  }
+
+  private fun updatePartialPaymentBanner() {
+    val amount = parseAmount()
+    if (amount == null || amount <= 0.0) {
+      binding.partialPaymentBanner.visibility = View.GONE
+      return
+    }
+    val expected = expectedMonthlyAmount()
+    val pending = computePendingAmount()
+    binding.partialPaymentBanner.visibility = View.VISIBLE
+    if (pending > 0.0) {
+      binding.partialPaymentBanner.setTextColor(getColor(R.color.status_upcoming_text))
+      binding.partialPaymentBanner.text =
+        "⚠️ Abono parcial detectado automáticamente\n" +
+          "Valor mensual: ${CurrencyFormatter.formatCurrency(expected, selectedCurrency)} · " +
+          "Abono hoy: ${CurrencyFormatter.formatCurrency(amount, selectedCurrency)} · " +
+          "Saldo pendiente: ${CurrencyFormatter.formatCurrency(pending, selectedCurrency)}"
+    } else {
+      binding.partialPaymentBanner.setTextColor(getColor(R.color.status_current_text))
+      binding.partialPaymentBanner.text =
+        "✅ Pago mensual completo (${CurrencyFormatter.formatCurrency(expected, selectedCurrency)})"
+    }
   }
 
   private fun parseAmount(): Double? =
@@ -391,6 +493,7 @@ class PaymentFormActivity : AppCompatActivity() {
     const val EXTRA_PAYMENT_ID = "payment_id"
     const val EXTRA_MEMBER_ID = "member_id"
     const val EXTRA_AMOUNT = "amount"
+    const val EXTRA_CURRENCY = "currency"
     const val EXTRA_PAID_ON = "paid_on"
     const val EXTRA_PAYMENT_TYPE = "payment_type"
     const val EXTRA_METHOD = "payment_method"

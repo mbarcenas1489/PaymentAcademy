@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.paymentacademy.data.model.MemberPaymentSummary
 import com.example.paymentacademy.data.model.PaymentSummary
+import com.example.paymentacademy.domain.CurrencyFormatter
+import com.example.paymentacademy.domain.InstallmentDraft
 import com.example.paymentacademy.domain.PaymentRepository
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -32,6 +34,8 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
             members = dashboard.members,
             movements = dashboard.movements,
             monthlyTotal = dashboard.monthlyTotal,
+            monthlyTotalNIO = dashboard.monthlyTotalNIO,
+            monthlyTotalUSD = dashboard.monthlyTotalUSD,
             organizationRole = dashboard.organizationRole,
             syncStatus = dashboard.syncStatus,
             pendingSyncCount = dashboard.pendingSyncCount,
@@ -63,6 +67,8 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
             members = dashboard.members,
             movements = dashboard.movements,
             monthlyTotal = dashboard.monthlyTotal,
+            monthlyTotalNIO = dashboard.monthlyTotalNIO,
+            monthlyTotalUSD = dashboard.monthlyTotalUSD,
             organizationRole = dashboard.organizationRole,
             syncStatus = dashboard.syncStatus,
             pendingSyncCount = dashboard.pendingSyncCount,
@@ -89,6 +95,8 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
             members = dashboard.members,
             movements = dashboard.movements,
             monthlyTotal = dashboard.monthlyTotal,
+            monthlyTotalNIO = dashboard.monthlyTotalNIO,
+            monthlyTotalUSD = dashboard.monthlyTotalUSD,
             organizationRole = dashboard.organizationRole,
             syncStatus = dashboard.syncStatus,
             pendingSyncCount = dashboard.pendingSyncCount,
@@ -111,6 +119,55 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
     refresh()
   }
 
+  fun registerInstallment(
+    payment: PaymentSummary,
+    installmentAmount: Double,
+    paymentMethod: String = payment.paymentMethod,
+    notes: String? = null,
+    onCompleted: (PaymentSummary) -> Unit = {},
+  ) {
+    viewModelScope.launch {
+      runCatching {
+        _uiState.update { it.copy(isLoading = true) }
+        val updated = repository.registerInstallment(
+          payment,
+          InstallmentDraft(
+            paymentId = payment.id,
+            installmentAmount = installmentAmount,
+            paidOn = LocalDate.now().toString(),
+            paymentMethod = paymentMethod,
+            notes = notes,
+          ),
+        )
+        loadDashboard() to updated
+      }.onSuccess { (dashboard, updated) ->
+        _uiState.update {
+          it.copy(
+            isLoading = false,
+            members = dashboard.members,
+            movements = dashboard.movements,
+            monthlyTotal = dashboard.monthlyTotal,
+            monthlyTotalNIO = dashboard.monthlyTotalNIO,
+            monthlyTotalUSD = dashboard.monthlyTotalUSD,
+            organizationRole = dashboard.organizationRole,
+            syncStatus = dashboard.syncStatus,
+            pendingSyncCount = dashboard.pendingSyncCount,
+            message = if (updated.pendingAmount <= 0.0) {
+              "¡Abono registrado! El saldo pendiente ha quedado en ${CurrencyFormatter.formatCurrency(0.0, updated.currency)}."
+            } else {
+              "Abono registrado correctamente."
+            },
+          )
+        }
+        onCompleted(updated)
+      }.onFailure { error ->
+        _uiState.update {
+          it.copy(isLoading = false, message = error.userMessage("No fue posible registrar el abono"))
+        }
+      }
+    }
+  }
+
   fun deletePayment(paymentId: String) {
     viewModelScope.launch {
       runCatching {
@@ -124,6 +181,8 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
             members = dashboard.members,
             movements = dashboard.movements,
             monthlyTotal = dashboard.monthlyTotal,
+            monthlyTotalNIO = dashboard.monthlyTotalNIO,
+            monthlyTotalUSD = dashboard.monthlyTotalUSD,
             organizationRole = dashboard.organizationRole,
             syncStatus = dashboard.syncStatus,
             pendingSyncCount = dashboard.pendingSyncCount,
@@ -182,6 +241,8 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
             members = dashboard.members,
             movements = dashboard.movements,
             monthlyTotal = dashboard.monthlyTotal,
+            monthlyTotalNIO = dashboard.monthlyTotalNIO,
+            monthlyTotalUSD = dashboard.monthlyTotalUSD,
             organizationRole = dashboard.organizationRole,
             syncStatus = dashboard.syncStatus,
             pendingSyncCount = dashboard.pendingSyncCount,
@@ -307,10 +368,19 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
     val pending = async { repository.getPendingSyncSummary() }
     val role = async { repository.getCurrentOrganizationRole() }
     val pendingSummary = pending.await()
+    val monthlyList = monthlyPayments.await()
+    val monthlyTotalNIO = monthlyList
+      .filter { CurrencyFormatter.normalizeCurrency(it.currency) != CurrencyFormatter.CURRENCY_USD }
+      .sumOf { it.amount }
+    val monthlyTotalUSD = monthlyList
+      .filter { CurrencyFormatter.normalizeCurrency(it.currency) == CurrencyFormatter.CURRENCY_USD }
+      .sumOf { it.amount }
     DashboardData(
       members = members.await(),
       movements = movements.await(),
-      monthlyTotal = monthlyPayments.await().sumOf { it.amount },
+      monthlyTotal = monthlyList.sumOf { it.amount },
+      monthlyTotalNIO = monthlyTotalNIO,
+      monthlyTotalUSD = monthlyTotalUSD,
       organizationRole = role.await(),
       pendingSyncCount = pendingSummary.totalCount,
       syncStatus = if (pendingSummary.hasPendingChanges) SyncStatus.PENDING else SyncStatus.SYNCED,
@@ -337,6 +407,8 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
     val members: List<MemberPaymentSummary>,
     val movements: List<PaymentSummary>,
     val monthlyTotal: Double,
+    val monthlyTotalNIO: Double,
+    val monthlyTotalUSD: Double,
     val organizationRole: com.example.paymentacademy.domain.OrganizationRole,
     val pendingSyncCount: Int,
     val syncStatus: SyncStatus,
