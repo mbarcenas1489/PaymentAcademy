@@ -15,10 +15,12 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.example.paymentacademy.data.model.Member
 import com.example.paymentacademy.data.remote.SupabaseProvider
 import com.example.paymentacademy.data.repository.SupabaseMemberRepository
+import com.example.paymentacademy.data.repository.SupabasePaymentRepository
 import com.example.paymentacademy.databinding.ActivityMembersBinding
+import com.example.paymentacademy.domain.CurrencyFormatter
+import com.example.paymentacademy.ui.MemberDialogs
 import com.example.paymentacademy.ui.MembersUiState
 import com.example.paymentacademy.ui.MembersViewModel
 import com.example.paymentacademy.ui.MembersViewModelFactory
@@ -28,7 +30,10 @@ import kotlinx.coroutines.launch
 class MembersActivity : AppCompatActivity() {
   private lateinit var binding: ActivityMembersBinding
   private val viewModel: MembersViewModel by viewModels {
-    MembersViewModelFactory(SupabaseMemberRepository(SupabaseProvider.client, applicationContext))
+    MembersViewModelFactory(
+      SupabaseMemberRepository(SupabaseProvider.client, applicationContext),
+      SupabasePaymentRepository(SupabaseProvider.client, applicationContext),
+    )
   }
   private val registerMember = registerForActivityResult(
     ActivityResultContracts.StartActivityForResult(),
@@ -77,22 +82,30 @@ class MembersActivity : AppCompatActivity() {
       membersContainer.addView(memberText(getString(R.string.empty_members)))
     } else {
       state.members.forEach { member ->
-        val itemBinding = com.example.paymentacademy.databinding.ItemMemberBinding.inflate(layoutInflater, membersContainer, false)
+        val itemBinding = com.example.paymentacademy.databinding.ItemMemberBinding.inflate(
+          layoutInflater,
+          membersContainer,
+          false,
+        )
         itemBinding.textFullName.text = member.fullName
-        
-        val contact = listOfNotNull(member.phone, member.email).filter { it.isNotBlank() }.joinToString(" · ")
+
+        val contact = listOfNotNull(member.documentNumber, member.phone, member.email)
+          .filter { it.isNotBlank() }
+          .joinToString(" · ")
         itemBinding.textContact.text = if (contact.isBlank()) getString(R.string.no_contact) else contact
-        
+
         itemBinding.textJoinedOn.text = getString(R.string.joined_on, member.joinedOn)
-        
+
         if (member.isSyncPending) {
-            itemBinding.iconSyncStatus.setImageResource(R.drawable.ic_cloud_upload)
-            itemBinding.iconSyncStatus.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.status_expired_text))
+          itemBinding.iconSyncStatus.setImageResource(R.drawable.ic_cloud_upload)
+          itemBinding.iconSyncStatus.imageTintList =
+            android.content.res.ColorStateList.valueOf(getColor(R.color.status_expired_text))
         } else {
-            itemBinding.iconSyncStatus.setImageResource(R.drawable.ic_cloud_done)
-            itemBinding.iconSyncStatus.imageTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.status_current_text))
+          itemBinding.iconSyncStatus.setImageResource(R.drawable.ic_cloud_done)
+          itemBinding.iconSyncStatus.imageTintList =
+            android.content.res.ColorStateList.valueOf(getColor(R.color.status_current_text))
         }
-        
+
         itemBinding.textStatus.text = statusLabel(member.status)
         when (member.status) {
           "active" -> {
@@ -108,6 +121,59 @@ class MembersActivity : AppCompatActivity() {
             itemBinding.textStatus.setBackgroundColor(getColor(R.color.status_expired_container))
           }
         }
+
+        val customTariff = state.memberTariffs[member.id]
+        if (customTariff != null) {
+          val parts = buildList {
+            customTariff.AmountMonthCordoba?.takeIf { it > 0 }?.let {
+              add(CurrencyFormatter.formatCurrency(it, CurrencyFormatter.CURRENCY_NIO))
+            }
+            customTariff.AmountMonthDollar?.takeIf { it > 0 }?.let {
+              add(CurrencyFormatter.formatCurrency(it, CurrencyFormatter.CURRENCY_USD))
+            }
+          }
+          val amountsSuffix = if (parts.isNotEmpty()) " (${parts.joinToString(" / ")})" else ""
+          itemBinding.textTariffBadge.text = "Tarifa personalizada$amountsSuffix"
+          itemBinding.textTariffBadge.setTextColor(getColor(R.color.partial_badge_text))
+          itemBinding.cardTariffBadge.setCardBackgroundColor(getColor(R.color.partial_badge_container))
+        } else {
+          itemBinding.textTariffBadge.text = "Tarifa general"
+          itemBinding.textTariffBadge.setTextColor(getColor(R.color.text_secondary))
+          itemBinding.cardTariffBadge.setCardBackgroundColor(getColor(R.color.latest_payment_box))
+        }
+
+        itemBinding.buttonTariff.setOnClickListener {
+          MemberDialogs.showMemberTariffDialog(
+            context = this@MembersActivity,
+            memberName = member.fullName,
+            currentTariff = customTariff,
+            globalSetting = state.paymentSetting,
+            onSaveCustom = { value -> viewModel.saveMemberTariff(member.id, value) },
+            onResetToGlobal = { viewModel.deleteMemberTariff(member.id) },
+          )
+        }
+
+        itemBinding.buttonEditMember.setOnClickListener {
+          MemberDialogs.showEditMemberDialog(
+            context = this@MembersActivity,
+            fullName = member.fullName,
+            documentNumber = member.documentNumber,
+            status = member.status,
+            phone = member.phone,
+            email = member.email,
+            notes = member.notes,
+            onSave = { request -> viewModel.updateMember(member.id, request) },
+          )
+        }
+
+        itemBinding.buttonDeleteMember.setOnClickListener {
+          MemberDialogs.showDeleteMemberDialog(
+            context = this@MembersActivity,
+            memberName = member.fullName,
+            onConfirmDelete = { viewModel.deleteMember(member.id) },
+          )
+        }
+
         membersContainer.addView(itemBinding.root)
       }
     }

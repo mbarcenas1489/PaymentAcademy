@@ -12,6 +12,7 @@ data class MemberPaymentSummary(
   val email: String? = null,
   val phone: String? = null,
   @SerialName("member_status") val memberStatus: String,
+  @SerialName("member_notes") val notes: String? = null,
   @SerialName("last_payment_id") val lastPaymentId: String? = null,
   @SerialName("last_amount") val lastAmount: Double? = null,
   @SerialName("last_pending_amount") val lastPendingAmount: Double? = null,

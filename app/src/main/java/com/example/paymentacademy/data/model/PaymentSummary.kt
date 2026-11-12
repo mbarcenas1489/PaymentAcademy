@@ -23,6 +23,7 @@ data class PaymentSummary(
   val reference: String? = null,
   val notes: String? = null,
   @SerialName("created_at") val createdAt: String,
+  @SerialName("IsDelete") val isDelete: Boolean = false,
   val isSyncPending: Boolean = false,
 )
 

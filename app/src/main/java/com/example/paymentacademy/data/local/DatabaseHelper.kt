@@ -24,7 +24,8 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(
                 notes TEXT,
                 created_at TEXT,
                 updated_at TEXT,
-                sync_pending INTEGER DEFAULT 0
+                sync_pending INTEGER DEFAULT 0,
+                is_deleted INTEGER DEFAULT 0
             )
         """)
         
@@ -50,6 +51,7 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(
         """)
 
         createAppConfigurationTable(db)
+        createMemberConfigurationTable(db)
         createOrganizationIndexes(db)
     }
 
@@ -70,6 +72,12 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(
             }
             createAppConfigurationTable(db)
         }
+        if (oldVersion < 5) {
+            runCatching {
+                db.execSQL("ALTER TABLE members ADD COLUMN is_deleted INTEGER DEFAULT 0")
+            }
+            createMemberConfigurationTable(db)
+        }
     }
 
     fun clearAllData() {
@@ -78,6 +86,7 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(
             writableDatabase.delete("payments", null, null)
             writableDatabase.delete("members", null, null)
             writableDatabase.delete("app_configuration", null, null)
+            writableDatabase.delete("member_configuration", null, null)
             writableDatabase.setTransactionSuccessful()
         } finally {
             writableDatabase.endTransaction()
@@ -89,6 +98,19 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(
             CREATE TABLE IF NOT EXISTS app_configuration (
                 setting_name TEXT PRIMARY KEY,
                 value_json TEXT
+            )
+        """)
+    }
+
+    private fun createMemberConfigurationTable(db: SQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS member_configuration (
+                member_id TEXT PRIMARY KEY,
+                setting_name TEXT DEFAULT 'PlaymentSetting',
+                amount_month_cordoba REAL,
+                amount_month_dollar REAL,
+                sync_pending INTEGER DEFAULT 0,
+                is_deleted INTEGER DEFAULT 0
             )
         """)
     }
@@ -107,6 +129,6 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(
     }
 
     private companion object {
-        const val DATABASE_VERSION = 4
+        const val DATABASE_VERSION = 5
     }
 }

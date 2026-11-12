@@ -16,6 +16,7 @@ data class Member(
   val notes: String? = null,
   @SerialName("created_at") val createdAt: String,
   @SerialName("updated_at") val updatedAt: String,
+  @SerialName("IsDelete") val isDelete: Boolean = false,
   val isSyncPending: Boolean = false,
 )
 

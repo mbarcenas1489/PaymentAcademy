@@ -6,7 +6,9 @@ import com.example.paymentacademy.data.model.MemberPaymentSummary
 import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.domain.CurrencyFormatter
 import com.example.paymentacademy.domain.InstallmentDraft
+import com.example.paymentacademy.domain.MemberRepository
 import com.example.paymentacademy.domain.PaymentRepository
+import com.example.paymentacademy.domain.UpdateMemberRequest
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,7 +18,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
-class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() {
+class PaymentViewModel(
+  private val repository: PaymentRepository,
+  private val memberRepository: MemberRepository? = null,
+) : ViewModel() {
   private val _uiState = MutableStateFlow(PaymentUiState(isLoading = true))
   val uiState: StateFlow<PaymentUiState> = _uiState.asStateFlow()
 
@@ -192,6 +197,72 @@ class PaymentViewModel(private val repository: PaymentRepository) : ViewModel() 
       }.onFailure { error ->
         _uiState.update {
           it.copy(isLoading = false, message = error.userMessage("No fue posible eliminar el pago"))
+        }
+      }
+    }
+  }
+
+  fun updateMember(memberId: String, data: UpdateMemberRequest) {
+    val memberRepo = memberRepository ?: return
+    viewModelScope.launch {
+      runCatching {
+        _uiState.update { it.copy(isLoading = true) }
+        memberRepo.updateMember(memberId, data)
+        loadDashboard()
+      }.onSuccess { dashboard ->
+        _uiState.update {
+          it.copy(
+            isLoading = false,
+            members = dashboard.members,
+            movements = dashboard.movements,
+            monthlyTotal = dashboard.monthlyTotal,
+            monthlyTotalNIO = dashboard.monthlyTotalNIO,
+            monthlyTotalUSD = dashboard.monthlyTotalUSD,
+            organizationRole = dashboard.organizationRole,
+            syncStatus = dashboard.syncStatus,
+            pendingSyncCount = dashboard.pendingSyncCount,
+            message = "Datos del miembro actualizados.",
+          )
+        }
+      }.onFailure { error ->
+        _uiState.update {
+          it.copy(
+            isLoading = false,
+            message = error.userMessage("No fue posible actualizar el miembro"),
+          )
+        }
+      }
+    }
+  }
+
+  fun deleteMember(memberId: String) {
+    val memberRepo = memberRepository ?: return
+    viewModelScope.launch {
+      runCatching {
+        _uiState.update { it.copy(isLoading = true) }
+        memberRepo.deleteMember(memberId)
+        loadDashboard()
+      }.onSuccess { dashboard ->
+        _uiState.update {
+          it.copy(
+            isLoading = false,
+            members = dashboard.members,
+            movements = dashboard.movements,
+            monthlyTotal = dashboard.monthlyTotal,
+            monthlyTotalNIO = dashboard.monthlyTotalNIO,
+            monthlyTotalUSD = dashboard.monthlyTotalUSD,
+            organizationRole = dashboard.organizationRole,
+            syncStatus = dashboard.syncStatus,
+            pendingSyncCount = dashboard.pendingSyncCount,
+            message = "Miembro dado de baja correctamente.",
+          )
+        }
+      }.onFailure { error ->
+        _uiState.update {
+          it.copy(
+            isLoading = false,
+            message = error.userMessage("No fue posible eliminar el miembro"),
+          )
         }
       }
     }

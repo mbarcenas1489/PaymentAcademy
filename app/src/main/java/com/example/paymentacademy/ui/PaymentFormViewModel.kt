@@ -3,6 +3,7 @@ package com.example.paymentacademy.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.paymentacademy.data.model.Member
+import com.example.paymentacademy.data.model.MemberTariffValue
 import com.example.paymentacademy.domain.CurrencyFormatter
 import com.example.paymentacademy.domain.MemberRepository
 import com.example.paymentacademy.domain.PaymentDraft
@@ -22,6 +23,7 @@ data class PaymentFormUiState(
   val isSaving: Boolean = false,
   val members: List<Member> = emptyList(),
   val paymentSetting: PaymentSetting = PaymentSetting(),
+  val memberTariffs: Map<String, MemberTariffValue> = emptyMap(),
   val isSaved: Boolean = false,
   val savedPaymentId: String? = null,
   val memberError: String? = null,
@@ -47,13 +49,17 @@ class PaymentFormViewModel(
           val settingDeferred = async {
             runCatching { paymentRepository.getPaymentSetting() }.getOrDefault(PaymentSetting())
           }
-          membersDeferred.await() to settingDeferred.await()
+          val tariffsDeferred = async {
+            runCatching { memberRepository.getMemberTariffs() }.getOrDefault(emptyMap())
+          }
+          Triple(membersDeferred.await(), settingDeferred.await(), tariffsDeferred.await())
         }
-      }.onSuccess { (members, setting) ->
+      }.onSuccess { (members, setting, tariffs) ->
         _uiState.value = PaymentFormUiState(
           isLoading = false,
           members = members,
           paymentSetting = setting,
+          memberTariffs = tariffs,
         )
       }.onFailure { error ->
         _uiState.value = PaymentFormUiState(

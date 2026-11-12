@@ -17,6 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.paymentacademy.data.model.Member
+import com.example.paymentacademy.data.model.MemberTariffValue
 import com.example.paymentacademy.data.remote.SupabaseProvider
 import com.example.paymentacademy.data.repository.SupabaseMemberRepository
 import com.example.paymentacademy.data.repository.SupabasePaymentRepository
@@ -51,6 +52,7 @@ class PaymentFormActivity : AppCompatActivity() {
   private var savedDialogVisible = false
   private var savedPaymentId: String? = null
   private var paymentSetting: PaymentSetting = PaymentSetting()
+  private var memberTariffs: Map<String, MemberTariffValue> = emptyMap()
   private var selectedCurrency: String = CurrencyFormatter.CURRENCY_NIO
   private var defaultAmountApplied = false
   private val memberAdapter = MemberSelectionAdapter(::selectMember)
@@ -111,7 +113,7 @@ class PaymentFormActivity : AppCompatActivity() {
       }
       if (previousCurrency == newCurrency) return@addOnButtonCheckedListener
       val currentVal = parseAmount()
-      val previousDefault = paymentSetting.monthlyTariffFor(previousCurrency)
+      val previousDefault = expectedMonthlyAmount(previousCurrency)
       selectedCurrency = newCurrency
       applyCurrencyUi()
       if (currentVal == null || currentVal == previousDefault) {
@@ -124,11 +126,22 @@ class PaymentFormActivity : AppCompatActivity() {
   private fun applyCurrencyUi() = with(binding) {
     amountLayout.prefixText = "${CurrencyFormatter.currencySymbol(selectedCurrency)} "
     val expected = expectedMonthlyAmount()
+    val hasCustom = hasMemberCustomTariff(selectedCurrency)
+    val badgeLabel = if (hasCustom) "Tarifa Miembro" else "Tarifa Global"
     monthlyTariffLabel.text =
-      "Tarifa mensual configurada: ${CurrencyFormatter.formatCurrency(expected, selectedCurrency)}"
+      "$badgeLabel: ${CurrencyFormatter.formatCurrency(expected, selectedCurrency)}"
   }
 
-  private fun expectedMonthlyAmount(): Double = paymentSetting.monthlyTariffFor(selectedCurrency)
+  private fun hasMemberCustomTariff(
+    currency: String = selectedCurrency,
+    member: Member? = selectedMember,
+  ): Boolean = member?.id?.let { memberTariffs[it]?.monthlyTariffFor(currency) != null } == true
+
+  private fun expectedMonthlyAmount(
+    currency: String = selectedCurrency,
+    member: Member? = selectedMember,
+  ): Double = member?.id?.let { memberTariffs[it]?.monthlyTariffFor(currency) }
+    ?: paymentSetting.monthlyTariffFor(currency)
 
   private fun plainAmount(value: Double): String =
     value.toBigDecimal().stripTrailingZeros().toPlainString()
@@ -221,12 +234,20 @@ class PaymentFormActivity : AppCompatActivity() {
   }
 
   private fun selectMember(member: Member) {
+    val previousExpected = expectedMonthlyAmount(selectedCurrency, selectedMember)
+    val globalExpected = paymentSetting.monthlyTariffFor(selectedCurrency)
+    val currentVal = parseAmount()
     selectedMember = member
     memberAdapter.selectedMemberId = member.id
     binding.selectedMemberLabel.text = getString(R.string.selected_member, member.fullName)
     binding.selectedMemberLabel.visibility = View.VISIBLE
     binding.detailsMemberLabel.text = member.fullName
     binding.memberSearchLayout.error = null
+    applyCurrencyUi()
+    if (paymentId == null && (currentVal == null || currentVal == previousExpected || currentVal == globalExpected)) {
+      binding.amountInput.setText(plainAmount(expectedMonthlyAmount()))
+    }
+    updatePartialPaymentBanner()
   }
 
   private fun filterMembers(query: String) {
@@ -316,19 +337,26 @@ class PaymentFormActivity : AppCompatActivity() {
   private fun render(state: PaymentFormUiState) = with(binding) {
     progressIndicator.visibility = if (state.isLoading || state.isSaving) View.VISIBLE else View.GONE
     membersLoaded = !state.isLoading
+    val previousExpected = expectedMonthlyAmount()
     paymentSetting = state.paymentSetting
-    applyCurrencyUi()
-    if (!state.isLoading && !defaultAmountApplied && paymentId == null && amountInput.text.isNullOrBlank()) {
-      defaultAmountApplied = true
-      amountInput.setText(plainAmount(expectedMonthlyAmount()))
-    }
-    updatePartialPaymentBanner()
+    memberTariffs = state.memberTariffs
     if (state.members != allMembers) {
       allMembers = state.members
       if (selectedMember == null && lockedMemberId != null) {
         state.members.firstOrNull { it.id == lockedMemberId }?.let(::selectMember)
       }
     }
+    applyCurrencyUi()
+    val currentAmount = parseAmount()
+    if (
+      !state.isLoading &&
+      paymentId == null &&
+      (!defaultAmountApplied || currentAmount == null || currentAmount == previousExpected)
+    ) {
+      defaultAmountApplied = true
+      amountInput.setText(plainAmount(expectedMonthlyAmount()))
+    }
+    updatePartialPaymentBanner()
     filterMembers(memberSearchInput.text?.toString().orEmpty())
 
     // La selección bloqueada debe resolverse antes de calcular el estado de navegación.

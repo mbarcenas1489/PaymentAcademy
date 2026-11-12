@@ -19,6 +19,8 @@ class MemberPaymentSummaryAdapter(
   private val onMemberSelected: (MemberPaymentSummary) -> Unit,
   private val onRegisterInstallment: (MemberPaymentSummary) -> Unit = {},
   private val onNewPayment: (MemberPaymentSummary) -> Unit = {},
+  private val onEditMember: (MemberPaymentSummary) -> Unit = {},
+  private val onDeleteMember: (MemberPaymentSummary) -> Unit = {},
   private val canManagePayments: () -> Boolean = { true },
 ) : ListAdapter<MemberPaymentSummary, MemberPaymentSummaryAdapter.MemberViewHolder>(DiffCallback) {
   private val locale = Locale.forLanguageTag("es-CO")
@@ -106,6 +108,8 @@ class MemberPaymentSummaryAdapter(
       historyButton.setOnClickListener { onMemberSelected(member) }
       installmentButton.setOnClickListener { onRegisterInstallment(member) }
       newPaymentButton.setOnClickListener { onNewPayment(member) }
+      editMemberButton.setOnClickListener { onEditMember(member) }
+      deleteMemberButton.setOnClickListener { onDeleteMember(member) }
     }
 
     private fun bindMemberStatus(status: String) = with(binding) {

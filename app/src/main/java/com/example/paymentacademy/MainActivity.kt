@@ -22,11 +22,13 @@ import androidx.work.WorkManager
 import com.example.paymentacademy.data.model.MemberPaymentSummary
 import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.data.remote.SupabaseProvider
+import com.example.paymentacademy.data.repository.SupabaseMemberRepository
 import com.example.paymentacademy.data.repository.SupabasePaymentRepository
 import com.example.paymentacademy.databinding.ActivityMainBinding
 import com.example.paymentacademy.domain.CurrencyFormatter
 import com.example.paymentacademy.domain.SyncAuditReport
 import com.example.paymentacademy.receipt.PaymentReceiptSharer
+import com.example.paymentacademy.ui.MemberDialogs
 import com.example.paymentacademy.ui.MemberPaymentSummaryAdapter
 import com.example.paymentacademy.ui.PaymentAdapter
 import com.example.paymentacademy.ui.PaymentUiState
@@ -46,12 +48,17 @@ class MainActivity : AppCompatActivity() {
   private var logoutDialog: AlertDialog? = null
   private var syncAuditDialog: AlertDialog? = null
   private val viewModel: PaymentViewModel by viewModels {
-    PaymentViewModelFactory(SupabasePaymentRepository(SupabaseProvider.client, applicationContext))
+    PaymentViewModelFactory(
+      SupabasePaymentRepository(SupabaseProvider.client, applicationContext),
+      SupabaseMemberRepository(SupabaseProvider.client, applicationContext),
+    )
   }
   private val memberAdapter = MemberPaymentSummaryAdapter(
     onMemberSelected = ::openMemberPayments,
     onRegisterInstallment = ::showInstallmentForMember,
     onNewPayment = ::openNewPaymentForMember,
+    onEditMember = ::showEditMemberDialog,
+    onDeleteMember = ::showDeleteMemberDialog,
     canManagePayments = { viewModel.uiState.value.organizationRole.canManagePayments },
   )
   private val movementAdapter = PaymentAdapter(
@@ -346,6 +353,27 @@ class MainActivity : AppCompatActivity() {
     paymentForm.launch(
       Intent(this, PaymentFormActivity::class.java)
         .putExtra(PaymentFormActivity.EXTRA_MEMBER_ID, member.memberId),
+    )
+  }
+
+  private fun showEditMemberDialog(member: MemberPaymentSummary) {
+    MemberDialogs.showEditMemberDialog(
+      context = this,
+      fullName = member.fullName,
+      documentNumber = member.documentNumber,
+      status = member.memberStatus,
+      phone = member.phone,
+      email = member.email,
+      notes = member.notes,
+      onSave = { request -> viewModel.updateMember(member.memberId, request) },
+    )
+  }
+
+  private fun showDeleteMemberDialog(member: MemberPaymentSummary) {
+    MemberDialogs.showDeleteMemberDialog(
+      context = this,
+      memberName = member.fullName,
+      onConfirmDelete = { viewModel.deleteMember(member.memberId) },
     )
   }
 

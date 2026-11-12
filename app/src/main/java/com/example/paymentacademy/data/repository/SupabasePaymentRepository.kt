@@ -7,6 +7,7 @@ import androidx.work.WorkManager
 import com.example.paymentacademy.data.local.DatabaseHelper
 import com.example.paymentacademy.data.model.MemberPaymentSummary
 import com.example.paymentacademy.data.model.Member
+import com.example.paymentacademy.data.model.MemberTariffValue
 import com.example.paymentacademy.data.model.PaymentSummary
 import com.example.paymentacademy.domain.CurrencyFormatter
 import com.example.paymentacademy.domain.InstallmentDraft
@@ -47,6 +48,7 @@ private data class PaymentEntity(
   val reference: String? = null,
   val notes: String? = null,
   @SerialName("created_at") val createdAt: String,
+  @SerialName("IsDelete") val isDelete: Boolean = false,
 )
 
 @Serializable
@@ -64,6 +66,7 @@ private data class UpsertPaymentRecord(
   @SerialName("valid_until") val validUntil: String,
   val reference: String? = null,
   val notes: String? = null,
+  @SerialName("IsDelete") val isDelete: Boolean = false,
 )
 
 @Serializable
@@ -143,25 +146,27 @@ class SupabasePaymentRepository(
     val remoteMemberIds = client.from("members")
       .select { filter { eq("organization_id", organizationId) } }
       .decodeList<Member>()
+      .filter { !it.isDelete }
       .mapTo(mutableSetOf()) { it.id }
     val remotePaymentIds = client.from("payments")
       .select { filter { eq("organization_id", organizationId) } }
       .decodeList<PaymentEntity>()
+      .filter { !it.isDelete }
       .mapTo(mutableSetOf()) { it.id }
 
     val allLocalMemberIds = localIds(
       "members",
-      "organization_id = ?",
+      "organization_id = ? AND is_deleted = 0",
       arrayOf(organizationId),
     )
     val synchronizedLocalMemberIds = localIds(
       "members",
-      "organization_id = ? AND sync_pending = 0",
+      "organization_id = ? AND sync_pending = 0 AND is_deleted = 0",
       arrayOf(organizationId),
     )
     val allLocalPaymentIds = localIds(
       "payments",
-      "organization_id = ?",
+      "organization_id = ? AND is_deleted = 0",
       arrayOf(organizationId),
     )
     val visibleLocalPaymentIds = localIds(
@@ -203,7 +208,8 @@ class SupabasePaymentRepository(
     val list = mutableListOf<PaymentSummary>()
     val db = dbHelper.readableDatabase
     val setting = ensureLocalPaymentSetting()
-    var selection = "p.organization_id = ? AND p.is_deleted = 0"
+    val memberTariffs = SupabaseMemberRepository.readLocalMemberTariffs(dbHelper)
+    var selection = "p.organization_id = ? AND p.is_deleted = 0 AND (m.is_deleted IS NULL OR m.is_deleted = 0)"
     val args = mutableListOf(organizationId)
 
     if (fromDate != null) {
@@ -231,6 +237,7 @@ class SupabasePaymentRepository(
 
     db.rawQuery(query, args.toTypedArray()).use { cursor ->
       while (cursor.moveToNext()) {
+        val mId = cursor.getString(cursor.getColumnIndexOrThrow("member_id"))
         val amount = cursor.getDouble(cursor.getColumnIndexOrThrow("amount"))
         val rawPending = cursor.getColumnIndex("pending_amount")
           .takeIf { it >= 0 && !cursor.isNull(it) }
@@ -243,11 +250,17 @@ class SupabasePaymentRepository(
           PaymentSummary(
             id = cursor.getString(cursor.getColumnIndexOrThrow("id")),
             organizationId = cursor.getString(cursor.getColumnIndexOrThrow("organization_id")),
-            memberId = cursor.getString(cursor.getColumnIndexOrThrow("member_id")),
+            memberId = mId,
             memberName = cursor.getString(cursor.getColumnIndexOrThrow("member_name")) ?: "Desconocido",
             memberDocument = cursor.getString(cursor.getColumnIndexOrThrow("member_document")),
             amount = amount,
-            pendingAmount = resolveEffectivePendingAmount(amount, rawPending, currency, setting),
+            pendingAmount = resolveEffectivePendingAmount(
+              amount = amount,
+              rawPending = rawPending,
+              currency = currency,
+              setting = setting,
+              memberTariff = memberTariffs[mId],
+            ),
             currency = currency,
             paidOn = cursor.getString(cursor.getColumnIndexOrThrow("paid_on")),
             paymentType = cursor.getString(cursor.getColumnIndexOrThrow("payment_type")),
@@ -257,6 +270,7 @@ class SupabasePaymentRepository(
             reference = cursor.getString(cursor.getColumnIndexOrThrow("reference")),
             notes = cursor.getString(cursor.getColumnIndexOrThrow("notes")),
             createdAt = cursor.getString(cursor.getColumnIndexOrThrow("created_at")),
+            isDelete = false,
             isSyncPending = cursor.getInt(cursor.getColumnIndexOrThrow("sync_pending")) == 1
           )
         )
@@ -270,9 +284,10 @@ class SupabasePaymentRepository(
     com.example.paymentacademy.worker.SyncWorker.schedule(context)
 
     val setting = ensureLocalPaymentSetting()
+    val memberTariffs = SupabaseMemberRepository.readLocalMemberTariffs(dbHelper)
     val list = mutableListOf<MemberPaymentSummary>()
     val query = """
-        SELECT m.id as member_id, m.organization_id, m.full_name, m.document_number, m.email, m.phone, m.status as member_status,
+        SELECT m.id as member_id, m.organization_id, m.full_name, m.document_number, m.email, m.phone, m.status as member_status, m.notes as member_notes,
                p.id as last_payment_id, p.amount as last_amount, p.pending_amount as last_pending_amount, p.currency as last_currency,
                p.paid_on as last_paid_on, p.payment_type as last_payment_type,
                p.payment_method as last_payment_method, p.valid_from as last_valid_from, p.valid_until as last_valid_until
@@ -282,14 +297,16 @@ class SupabasePaymentRepository(
             WHERE organization_id = m.organization_id AND member_id = m.id AND is_deleted = 0
             ORDER BY valid_until DESC LIMIT 1
         )
-        WHERE m.organization_id = ?
+        WHERE m.organization_id = ? AND m.is_deleted = 0
         ORDER BY m.full_name ASC
     """
     
     dbHelper.readableDatabase.rawQuery(query, arrayOf(organizationId)).use { cursor ->
       while (cursor.moveToNext()) {
+        val mId = cursor.getString(cursor.getColumnIndexOrThrow("member_id"))
         val pendingIdx = cursor.getColumnIndex("last_pending_amount")
         val currencyIdx = cursor.getColumnIndex("last_currency")
+        val notesIdx = cursor.getColumnIndex("member_notes")
         val lastAmount = if (!cursor.isNull(cursor.getColumnIndexOrThrow("last_amount"))) {
           cursor.getDouble(cursor.getColumnIndexOrThrow("last_amount"))
         } else {
@@ -306,19 +323,26 @@ class SupabasePaymentRepository(
           CurrencyFormatter.CURRENCY_NIO
         }
         val effectivePending = if (lastAmount != null) {
-          resolveEffectivePendingAmount(lastAmount, rawPending, lastCurrency, setting)
+          resolveEffectivePendingAmount(
+            amount = lastAmount,
+            rawPending = rawPending,
+            currency = lastCurrency,
+            setting = setting,
+            memberTariff = memberTariffs[mId],
+          )
         } else {
           null
         }
         list.add(
           MemberPaymentSummary(
-            memberId = cursor.getString(cursor.getColumnIndexOrThrow("member_id")),
+            memberId = mId,
             organizationId = cursor.getString(cursor.getColumnIndexOrThrow("organization_id")),
             fullName = cursor.getString(cursor.getColumnIndexOrThrow("full_name")),
             documentNumber = cursor.getString(cursor.getColumnIndexOrThrow("document_number")),
             email = cursor.getString(cursor.getColumnIndexOrThrow("email")),
             phone = cursor.getString(cursor.getColumnIndexOrThrow("phone")),
             memberStatus = cursor.getString(cursor.getColumnIndexOrThrow("member_status")),
+            notes = if (notesIdx >= 0 && !cursor.isNull(notesIdx)) cursor.getString(notesIdx) else null,
             lastPaymentId = cursor.getString(cursor.getColumnIndexOrThrow("last_payment_id")),
             lastAmount = lastAmount,
             lastPendingAmount = effectivePending,
@@ -371,9 +395,11 @@ class SupabasePaymentRepository(
     rawPending: Double,
     currency: String,
     setting: PaymentSetting,
+    memberTariff: MemberTariffValue? = null,
   ): Double {
     if (rawPending <= 0.0) return 0.0
-    val configuredTotal = setting.monthlyTariffFor(currency)
+    val configuredTotal = memberTariff?.monthlyTariffFor(currency)
+      ?: setting.monthlyTariffFor(currency)
     if (amount >= configuredTotal) return 0.0
     return (configuredTotal - amount).coerceAtLeast(0.0)
   }
@@ -636,7 +662,7 @@ class SupabasePaymentRepository(
           put("notes", payment.notes)
           put("created_at", payment.createdAt)
           put("sync_pending", 0)
-          put("is_deleted", 0)
+          put("is_deleted", if (payment.isDelete) 1 else 0)
         }
         db.insertWithOnConflict("payments", null, values, SQLiteDatabase.CONFLICT_REPLACE)
       }
@@ -648,12 +674,12 @@ class SupabasePaymentRepository(
 
   private suspend fun syncUpPayments(organizationId: String) {
     val db = dbHelper.readableDatabase
-    
-    // 1. Sync Upserts (Inserts and Updates)
+
+    // Sincronizar todos los pagos pendientes (incluyendo eliminaciones lógicas con IsDelete = true)
     val cursor = db.query(
       "payments",
       null,
-      "organization_id = ? AND sync_pending = 1 AND is_deleted = 0",
+      "organization_id = ? AND sync_pending = 1",
       arrayOf(organizationId),
       null,
       null,
@@ -661,11 +687,13 @@ class SupabasePaymentRepository(
     )
     val upserts = mutableListOf<UpsertPaymentRecord>()
     val upsertIds = mutableListOf<String>()
-    
+
     cursor.use {
       while (it.moveToNext()) {
         val pendingCol = it.getColumnIndex("pending_amount")
         val currencyCol = it.getColumnIndex("currency")
+        val isDeletedCol = it.getColumnIndex("is_deleted")
+        val isDeleted = if (isDeletedCol >= 0 && !it.isNull(isDeletedCol)) it.getInt(isDeletedCol) == 1 else false
         upsertIds.add(it.getString(it.getColumnIndexOrThrow("id")))
         upserts.add(
           UpsertPaymentRecord(
@@ -685,7 +713,8 @@ class SupabasePaymentRepository(
             validFrom = it.getString(it.getColumnIndexOrThrow("valid_from")),
             validUntil = it.getString(it.getColumnIndexOrThrow("valid_until")),
             reference = it.getString(it.getColumnIndexOrThrow("reference")),
-            notes = it.getString(it.getColumnIndexOrThrow("notes"))
+            notes = it.getString(it.getColumnIndexOrThrow("notes")),
+            isDelete = isDeleted,
           )
         )
       }
@@ -707,44 +736,6 @@ class SupabasePaymentRepository(
       } catch (e: Exception) {
         android.util.Log.e("PaymentRepository", "Error syncing upserts", e)
         throw e
-      }
-    }
-
-    // 2. Sync Deletes
-    val delCursor = db.query(
-      "payments",
-      arrayOf("id"),
-      "organization_id = ? AND is_deleted = 1 AND sync_pending = 1",
-      arrayOf(organizationId),
-      null,
-      null,
-      null,
-    )
-    val deleteIds = mutableListOf<String>()
-    delCursor.use {
-      while (it.moveToNext()) {
-        deleteIds.add(it.getString(it.getColumnIndexOrThrow("id")))
-      }
-    }
-
-    if (deleteIds.isNotEmpty()) {
-      for (id in deleteIds) {
-        try {
-          client.from("payments").delete {
-            filter {
-              eq("id", id)
-              eq("organization_id", organizationId)
-            }
-          }
-          dbHelper.writableDatabase.delete(
-            "payments",
-            "id = ? AND organization_id = ?",
-            arrayOf(id, organizationId),
-          )
-        } catch (e: Exception) {
-          android.util.Log.e("PaymentRepository", "Error syncing deletes", e)
-          throw e
-        }
       }
     }
   }
@@ -785,6 +776,9 @@ class SupabasePaymentRepository(
       table = "members",
       selection = "organization_id = ? AND sync_pending = 1",
       selectionArgs = arrayOf(organizationId),
+    ) + countRows(
+      table = "member_configuration",
+      selection = "sync_pending = 1",
     ),
     paymentCount = countRows(
       table = "payments",
@@ -794,7 +788,8 @@ class SupabasePaymentRepository(
   )
 
   private fun getAllPendingSyncSummary(): PendingSyncSummary = PendingSyncSummary(
-    memberCount = countRows("members", "sync_pending = 1"),
+    memberCount = countRows("members", "sync_pending = 1") +
+      countRows("member_configuration", "sync_pending = 1"),
     paymentCount = countRows("payments", "sync_pending = 1"),
   )
 
